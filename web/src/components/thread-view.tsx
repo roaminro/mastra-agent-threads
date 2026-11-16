@@ -3,12 +3,11 @@ import { RequestContext } from '@mastra/core/request-context';
 import { type MastraDBMessage, useMastraClient } from '@mastra/react';
 import { useQuery } from '@tanstack/react-query';
 import { useChat } from '@mastra/react/chat';
-import { PlayIcon, SendIcon, SquareIcon, TriangleAlertIcon } from 'lucide-react';
+import { ArrowUpIcon, PlayIcon, SquareIcon, TriangleAlertIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import { StatusDot } from '@/components/agent-tree';
 import { ChatMessage } from '@/components/chat-message';
 import { DeleteThreadDialog, short } from '@/components/delete-thread-dialog';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   MessageScroller,
@@ -20,6 +19,7 @@ import {
 } from '@/components/ui/message-scroller';
 import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
+import { cn } from '@/lib/utils';
 import { type AgentThread, rootOf, useCloseTask, useDismissInterrupted } from '@/lib/api';
 
 type ThreadViewProps = {
@@ -140,25 +140,24 @@ function ThreadChat({
 
   return (
     <section className="flex min-h-0 flex-col">
-      <div className="flex items-center gap-3 border-b px-4 py-2.5">
-        <StatusDot thread={{ ...thread, running }} />
+      <div className="flex min-h-14 items-center gap-3 border-b px-5 py-2">
         <div className="min-w-0">
-          <div className="truncate font-medium">{thread.title}</div>
-          <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-            {running ? 'running' : interrupted ? 'interrupted' : 'idle'} · sandbox
-            <Badge variant="outline" className="font-mono text-[10px] text-violet-300">
-              {short(thread.sandboxId)}
-            </Badge>
-            · depth {thread.depth}
-            {parent && (
-              <>
-                · started by
-                <button className="text-sky-400 hover:underline" onClick={() => onSelect(parent.id)}>
-                  {parent.title}
-                </button>
-              </>
-            )}
-            {root.closed && <Badge variant="secondary">closed</Badge>}
+          {parent && (
+            <button className="block max-w-full truncate font-mono text-[11px] text-faint hover:text-foreground" onClick={() => onSelect(parent.id)}>
+              ↖ {parent.title}
+            </button>
+          )}
+          <div className="flex items-center gap-2">
+            <StatusDot thread={{ ...thread, running }} />
+            <h2 className="truncate font-medium">{thread.title}</h2>
+          </div>
+          <div className="flex flex-wrap items-center gap-x-3 font-mono text-[11px] text-faint">
+            <span className={cn(running && 'text-signal', interrupted && 'text-amber-400')}>
+              {running ? 'running' : interrupted ? 'interrupted' : 'idle'}
+            </span>
+            <span>sandbox {short(thread.sandboxId)}</span>
+            <span>depth {thread.depth}</span>
+            {root.closed && <span>closed</span>}
           </div>
         </div>
         <div className="flex-1" />
@@ -181,15 +180,15 @@ function ThreadChat({
         >
           {root.closed ? 'Reopen' : 'Close task'}
         </Button>
-        <Button size="sm" variant="ghost" className="text-destructive" onClick={() => setDeleting(true)}>
+        <Button size="sm" variant="ghost" className="text-faint hover:text-destructive" onClick={() => setDeleting(true)}>
           Delete
         </Button>
       </div>
 
       {interrupted && (
-        <div className="flex items-center gap-3 border-b border-amber-900/60 bg-amber-950/40 px-4 py-2.5 text-sm">
+        <div className="flex items-center gap-3 border-b border-l-2 border-l-amber-400 bg-amber-400/5 px-5 py-2.5 text-sm">
           <TriangleAlertIcon className="size-4 shrink-0 text-amber-400" />
-          <p className="min-w-0 flex-1 text-amber-100">
+          <p className="min-w-0 flex-1 text-muted-foreground">
             A server restart interrupted this agent
             {thread.runStartedAt && ` (its run started ${new Date(thread.runStartedAt).toLocaleString()})`}. Its
             conversation and files are kept; steps it hadn't saved are lost.
@@ -211,7 +210,7 @@ function ThreadChat({
       <MessageScrollerProvider autoScroll defaultScrollPosition="end">
         <MessageScroller className="min-h-0 flex-1">
           <MessageScrollerViewport>
-            <MessageScrollerContent className="mx-auto max-w-3xl gap-4 px-4 py-4">
+            <MessageScrollerContent className="mx-auto max-w-[46rem] gap-5 px-6 py-6">
               {messages.map(message => (
                 <MessageScrollerItem key={message.id} messageId={message.id} scrollAnchor={incoming(message)}>
                   <ChatMessage
@@ -225,8 +224,8 @@ function ThreadChat({
                 </MessageScrollerItem>
               ))}
               {running && (
-                <p className="flex items-center gap-2 text-sm text-muted-foreground italic">
-                  <Spinner /> Working…
+                <p className="flex items-center gap-2 font-mono text-xs text-signal">
+                  <Spinner className="size-3" /> working
                 </p>
               )}
             </MessageScrollerContent>
@@ -236,28 +235,33 @@ function ThreadChat({
       </MessageScrollerProvider>
 
       <form
-        className="flex gap-2 border-t p-3"
+        className="mx-auto w-full max-w-[46rem] px-6 pb-4"
         onSubmit={event => {
           event.preventDefault();
           send();
         }}
       >
-        <Textarea
-          value={draft}
-          onChange={e => setDraft(e.target.value)}
-          onKeyDown={e => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              send();
-            }
-          }}
-          placeholder={running ? 'Message this agent — it reaches it mid-task' : 'Message this agent'}
-          className="min-h-11 resize-none"
-          rows={1}
-        />
-        <Button type="submit" size="icon" disabled={!draft.trim()}>
-          <SendIcon />
-        </Button>
+        <div className="rounded-md border bg-raised focus-within:border-muted-foreground/50">
+          <Textarea
+            value={draft}
+            onChange={e => setDraft(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                send();
+              }
+            }}
+            placeholder={running ? 'Message this agent. It reads it between steps.' : 'Message this agent'}
+            className="min-h-11 resize-none border-0 bg-transparent shadow-none focus-visible:ring-0 dark:bg-transparent"
+            rows={1}
+          />
+          <div className="flex items-center justify-between px-3 pb-2 font-mono text-[11px] text-faint">
+            <span>↵ send · ⇧↵ new line</span>
+            <Button type="submit" size="icon-xs" disabled={!draft.trim()}>
+              <ArrowUpIcon />
+            </Button>
+          </div>
+        </div>
       </form>
 
       <DeleteThreadDialog

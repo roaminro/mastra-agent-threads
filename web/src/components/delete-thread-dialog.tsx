@@ -50,7 +50,7 @@ export function DeleteThreadDialog({
                 {doomed.map(t => (
                   <li key={t.id}>
                     {t.title}
-                    {t.running && <span className="text-emerald-400"> (running, will be stopped)</span>}
+                    {t.running && <span className="text-signal"> (running, will be stopped)</span>}
                   </li>
                 ))}
               </ul>

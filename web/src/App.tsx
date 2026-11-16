@@ -2,12 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import { MastraReactProvider } from '@mastra/react';
 import { LogOutIcon, PlusIcon } from 'lucide-react';
 import { AgentTree } from '@/components/agent-tree';
+import { Logo } from '@/components/logo';
 import { FilesPanel } from '@/components/files-panel';
 import { NewTaskDialog } from '@/components/new-task-dialog';
 import { SignIn } from '@/components/sign-in';
 import { ThreadView } from '@/components/thread-view';
 import { Button } from '@/components/ui/button';
-import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { type AgentThread, api, getToken, needsAttention, rootOf, setToken, useMarkSeen, useThreads } from '@/lib/api';
 
 type Session = { token: string; resourceId: string };
@@ -71,13 +71,11 @@ function Workspace({ resourceId, onSignOut }: { resourceId: string; onSignOut: (
 
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
-      <header className="flex items-center gap-3 border-b px-4 py-2.5">
-        <div className="font-semibold">
-          agent<span className="text-sky-400">threads</span>
-        </div>
+      <header className="flex h-11 items-center gap-3 border-b bg-rail px-3">
+        <Logo />
         {flagged > 0 && (
-          <span className="flex items-center gap-1.5 text-sm text-sky-300">
-            <span className="size-2 rounded-full bg-sky-400" />
+          <span className="flex items-center gap-1.5 font-mono text-xs text-foreground">
+            <span className="size-1.5 rounded-full bg-foreground" />
             {flagged} to look at
           </span>
         )}
@@ -85,25 +83,28 @@ function Workspace({ resourceId, onSignOut }: { resourceId: string; onSignOut: (
         <Button size="sm" onClick={() => setNewTaskOpen(true)}>
           <PlusIcon /> New task
         </Button>
-        <span className="text-sm text-muted-foreground">{resourceId}</span>
-        <Button size="icon-sm" variant="ghost" onClick={onSignOut} title="Sign out">
+        <span className="font-mono text-xs text-faint">{resourceId}</span>
+        <Button size="icon-sm" variant="ghost" onClick={onSignOut} title="Sign out" className="text-faint">
           <LogOutIcon />
         </Button>
       </header>
 
-      <main className="grid min-h-0 flex-1 grid-cols-[280px_1fr_360px]">
+      <main className="grid min-h-0 flex-1 grid-cols-[264px_1fr_340px]">
         <AgentTree threads={threads} selected={selected} onSelect={select} />
         {thread ? (
           <ThreadView key={thread.id} thread={thread} threads={threads} resourceId={resourceId} onSelect={select} />
         ) : (
-          <Empty>
-            <EmptyHeader>
-              <EmptyTitle>No thread selected</EmptyTitle>
-              <EmptyDescription>Pick an agent on the left, or start a new task.</EmptyDescription>
-            </EmptyHeader>
-          </Empty>
+          <div className="flex flex-col items-start justify-center gap-3 px-12">
+            <p className="font-mono text-xs text-faint">no agent selected</p>
+            <p className="max-w-sm text-muted-foreground">
+              Pick an agent on the left, or give a new one a task. It can split the work across other agents.
+            </p>
+            <Button size="sm" variant="outline" onClick={() => setNewTaskOpen(true)}>
+              <PlusIcon /> New task
+            </Button>
+          </div>
         )}
-        {thread ? <FilesPanel key={`files-${thread.id}`} thread={thread} threads={threads} /> : <aside className="border-l" />}
+        {thread ? <FilesPanel key={`files-${thread.id}`} thread={thread} threads={threads} /> : <aside className="border-l bg-rail" />}
       </main>
 
       <NewTaskDialog threads={threads} open={newTaskOpen} onOpenChange={setNewTaskOpen} onStarted={select} />

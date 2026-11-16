@@ -65,11 +65,18 @@ export function NewTaskDialog({
             <DialogTitle>New task</DialogTitle>
             <DialogDescription>An agent starts on it right away. It can split the work across other agents.</DialogDescription>
           </DialogHeader>
-          <Label htmlFor="title">Title</Label>
+          <Label htmlFor="title" className="mt-1 font-mono text-[11px] font-normal text-faint">title</Label>
           <Input id="title" value={title} onChange={e => setTitle(e.target.value)} maxLength={80} required />
-          <Label htmlFor="task">Instructions</Label>
-          <Textarea id="task" value={task} onChange={e => setTask(e.target.value)} rows={5} required />
-          <Label>Sandbox</Label>
+          <Label htmlFor="task" className="mt-1 font-mono text-[11px] font-normal text-faint">instructions</Label>
+          <Textarea
+            id="task"
+            value={task}
+            onChange={e => setTask(e.target.value)}
+            rows={6}
+            required
+            placeholder="Clone sindresorhus/slugify into /mnt/work/slugify and run its tests."
+          />
+          <Label className="mt-1 font-mono text-[11px] font-normal text-faint">sandbox</Label>
           <div className="grid grid-cols-2 gap-2">
             {options.map(option => (
               <button
@@ -77,12 +84,20 @@ export function NewTaskDialog({
                 key={option.value}
                 onClick={() => setSandbox(option.value)}
                 className={cn(
-                  'rounded-lg border px-3 py-2 text-left text-sm',
-                  sandbox === option.value && 'border-sky-500 bg-sky-500/10',
+                  'flex items-start gap-2.5 rounded-md border px-3 py-2 text-left text-sm hover:bg-muted/50',
+                  sandbox === option.value && 'border-muted-foreground/60 bg-muted/50',
                 )}
               >
-                <div className="font-medium">{option.label}</div>
-                <div className="text-xs text-muted-foreground">{option.hint}</div>
+                <span
+                  className={cn(
+                    'mt-1 size-3 shrink-0 rounded-full border border-faint',
+                    sandbox === option.value && 'border-[3px] border-signal',
+                  )}
+                />
+                <span>
+                  <span className="block font-mono text-xs">{option.label}</span>
+                  <span className="block text-xs text-muted-foreground">{option.hint}</span>
+                </span>
               </button>
             ))}
           </div>

@@ -1,14 +1,13 @@
 import type { MastraDBMessage } from '@mastra/react';
-import { ArrowUpRightIcon, BotIcon, CircleAlertIcon, CircleCheckIcon, TerminalIcon, WrenchIcon } from 'lucide-react';
+import { ArrowUpRightIcon } from 'lucide-react';
+import { short } from '@/components/delete-thread-dialog';
 import { Markdown } from '@/components/markdown';
 import { CodeBlock, CodeBlockContent } from '@/components/ui/code-block';
-import { Message, MessageContent, MessageHeader } from '@/components/ui/message';
 import {
   Trace,
   TraceCollapsible,
   TraceCollapsibleContent,
   TraceCollapsibleTrigger,
-  TraceIcon,
   TraceLine,
   TraceTitle,
 } from '@/components/ui/trace';
@@ -97,19 +96,13 @@ export function ChatMessage({ message, thread, threads, running, isFirstUserMess
 function ReportCard({ signal, title, onSelect }: { signal: Signal; title: string; onSelect: (id: string) => void }) {
   const blocked = signal.status === 'blocked';
   return (
-    <div
-      className={cn(
-        'rounded-xl border p-3 text-sm',
-        blocked ? 'border-amber-500/40 bg-amber-500/10' : 'border-emerald-500/40 bg-emerald-500/10',
-      )}
-    >
-      <div className={cn('mb-1 flex items-center gap-2 font-medium', blocked ? 'text-amber-300' : 'text-emerald-300')}>
-        {blocked ? <CircleAlertIcon className="size-4" /> : <CircleCheckIcon className="size-4" />}
-        Report from
-        <button className="underline" onClick={() => signal.from && onSelect(signal.from)}>
+    <div className={cn('border-l-2 py-0.5 pl-4 text-sm', blocked ? 'border-amber-400' : 'border-signal')}>
+      <div className="mb-1.5 flex items-center gap-2 font-mono text-[11px] text-faint">
+        <span className={blocked ? 'text-amber-400' : 'text-signal'}>{blocked ? 'blocked' : 'done'}</span>
+        <span>report from</span>
+        <button className="text-muted-foreground hover:text-foreground hover:underline" onClick={() => signal.from && onSelect(signal.from)}>
           {title}
         </button>
-        · {blocked ? 'blocked' : 'done'}
       </div>
       <Markdown>{signal.contents}</Markdown>
     </div>
@@ -128,20 +121,18 @@ function Incoming({
   onSelect: (id: string) => void;
 }) {
   return (
-    <Message align="end">
-      <div className="flex max-w-[85%] flex-col items-end gap-1">
-        {from && (
-          <MessageHeader>
-            <button className="hover:underline" onClick={() => onSelect(from)}>
-              from agent · {title}
-            </button>
-          </MessageHeader>
+    <div className="rounded-md border bg-raised px-4 py-3 text-sm">
+      <div className="mb-1 font-mono text-[11px] text-faint">
+        {from ? (
+          <button className="hover:text-foreground hover:underline" onClick={() => onSelect(from)}>
+            from {title}
+          </button>
+        ) : (
+          'you'
         )}
-        <MessageContent className="rounded-xl bg-sky-950/60 px-3 py-2 ring-1 ring-sky-800/60">
-          <Markdown>{text}</Markdown>
-        </MessageContent>
       </div>
-    </Message>
+      <Markdown>{text}</Markdown>
+    </div>
   );
 }
 
@@ -182,19 +173,20 @@ function ToolCall({
   // Starting an agent gets its own line with a link to the new thread.
   if (call.toolName === 'start_agent') {
     const started = parse(result) as { threadId?: string; sandboxId?: string } | undefined;
-    const sandbox = args.sandbox === 'shared' ? 'this sandbox (shared)' : args.sandbox === 'new' ? 'a new sandbox' : String(args.sandbox);
+    const sandbox = args.sandbox === 'shared' ? 'shared sandbox' : args.sandbox === 'new' ? 'new sandbox' : `sandbox ${short(String(args.sandbox))}`;
+    const open = started?.threadId && threads.some(t => t.id === started.threadId);
     return (
-      <div className="flex items-center gap-2 rounded-lg border border-dashed border-sky-800 px-3 py-2 text-muted-foreground">
-        <BotIcon className="size-4 text-sky-400" />
-        <span>
-          {done ? 'Started' : 'Starting'} <b className="text-foreground">{String(args.title ?? 'an agent')}</b> in {sandbox}
-        </span>
-        {started?.threadId && threads.some(t => t.id === started.threadId) && (
-          <button className="ml-auto flex items-center gap-1 text-sky-400" onClick={() => onSelect(started.threadId!)}>
-            open <ArrowUpRightIcon className="size-3.5" />
-          </button>
-        )}
-      </div>
+      <button
+        disabled={!open}
+        onClick={() => open && onSelect(started.threadId!)}
+        className="group flex w-full items-center gap-2 rounded px-1 py-1 text-left font-mono text-xs text-faint enabled:hover:bg-muted/50"
+      >
+        <span className="text-signal">↳</span>
+        <span>{done ? 'started' : 'starting'}</span>
+        <span className="truncate font-sans text-[13px] text-foreground">{String(args.title ?? 'an agent')}</span>
+        <span>· {sandbox}</span>
+        {open && <ArrowUpRightIcon className="ml-auto size-3.5 opacity-0 group-hover:opacity-100" />}
+      </button>
     );
   }
 
@@ -209,9 +201,11 @@ function ToolCall({
       <TraceCollapsible>
         <TraceCollapsibleTrigger>
           <TraceLine status={cutOff ? 'error' : !done ? 'running' : failed ? 'error' : undefined}>
-            <TraceIcon>{isCommand ? <TerminalIcon /> : <WrenchIcon />}</TraceIcon>
-            <TraceTitle className="max-w-[60ch] truncate font-mono text-xs">
-              {done ? (isCommand ? 'Ran ' : 'Called ') : cutOff ? "Didn't finish: " : 'Running '}
+            <TraceTitle className="max-w-[64ch] truncate font-mono text-xs text-muted-foreground">
+              <span className={cn('mr-2', cutOff || failed ? 'text-destructive' : !done ? 'text-signal' : 'text-faint')}>
+                {isCommand ? '$' : '·'}
+              </span>
+              {cutOff && <span className="text-destructive">didn't finish: </span>}
               {label.split('\n')[0]}
             </TraceTitle>
           </TraceLine>

@@ -16,23 +16,28 @@ export function FilesPanel({ thread, threads }: { thread: AgentThread; threads: 
   const parts = dir ? dir.split('/') : [];
 
   return (
-    <aside className="flex min-h-0 flex-col gap-3 overflow-y-auto border-l p-3">
-      <div className="rounded-lg border bg-muted/40 p-3 text-xs text-muted-foreground">
-        Sandbox <span className="font-mono text-violet-300">{short(thread.sandboxId)}</span> · files in{' '}
-        <code>/mnt/work</code>
-        <br />
-        {sharing.length} agent{sharing.length === 1 ? '' : 's'} use it ·{' '}
-        {sharing.some(t => t.running) ? <span className="text-emerald-400">working now</span> : 'idle'}
-      </div>
+    <aside className="flex min-h-0 flex-col gap-4 overflow-y-auto border-l bg-rail p-4">
+      <dl className="grid grid-cols-[5.5rem_1fr] gap-y-1 font-mono text-[11px]">
+        <dt className="text-faint">sandbox</dt>
+        <dd className="text-muted-foreground">{short(thread.sandboxId)}</dd>
+        <dt className="text-faint">used by</dt>
+        <dd className="text-muted-foreground">
+          {sharing.length} agent{sharing.length === 1 ? '' : 's'}
+        </dd>
+        <dt className="text-faint">state</dt>
+        <dd className={sharing.some(t => t.running) ? 'text-signal' : 'text-muted-foreground'}>
+          {sharing.some(t => t.running) ? 'working' : 'idle'}
+        </dd>
+      </dl>
 
-      <nav className="flex flex-wrap items-center gap-1 text-sm">
-        <button className="text-sky-400 hover:underline" onClick={() => setDir('')}>
+      <nav className="flex flex-wrap items-center border-b pb-2 font-mono text-xs text-faint">
+        <button className="hover:text-foreground" onClick={() => setDir('')}>
           /mnt/work
         </button>
         {parts.map((part, i) => (
           <span key={i}>
-            /{' '}
-            <button className="text-sky-400 hover:underline" onClick={() => setDir(parts.slice(0, i + 1).join('/'))}>
+            /
+            <button className="text-muted-foreground hover:text-foreground" onClick={() => setDir(parts.slice(0, i + 1).join('/'))}>
               {part}
             </button>
           </span>
@@ -40,15 +45,15 @@ export function FilesPanel({ thread, threads }: { thread: AgentThread; threads: 
       </nav>
 
       {files.isPending ? (
-        <p className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Spinner /> Starting the sandbox…
+        <p className="flex items-center gap-2 font-mono text-xs text-faint">
+          <Spinner className="size-3" /> starting the sandbox
         </p>
       ) : files.isError ? (
         <p className="text-sm text-destructive">{files.error.message}</p>
       ) : files.data.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No files yet.</p>
+        <p className="font-mono text-xs text-faint">empty</p>
       ) : (
-        <ul className="text-sm">
+        <ul className="-mx-2 font-mono text-xs">
           {files.data.map(entry => {
             const path = dir ? `${dir}/${entry.name}` : entry.name;
             return (
@@ -56,16 +61,19 @@ export function FilesPanel({ thread, threads }: { thread: AgentThread; threads: 
                 key={entry.name}
                 onClick={() => (entry.type === 'directory' ? setDir(path) : setFile(path))}
                 className={cn(
-                  'flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 hover:bg-muted',
-                  path === file && 'bg-muted',
+                  'flex h-6 cursor-pointer items-center gap-2 rounded px-2 text-muted-foreground hover:bg-muted/60 hover:text-foreground',
+                  path === file && 'bg-muted text-foreground',
                 )}
               >
                 {entry.type === 'directory' ? (
-                  <FolderIcon className="size-4 text-sky-400" />
+                  <FolderIcon className="size-3.5 text-faint" />
                 ) : (
-                  <FileIcon className="size-4 text-muted-foreground" />
+                  <FileIcon className="size-3.5 text-faint" />
                 )}
-                <span className="truncate">{entry.name}</span>
+                <span className="truncate">
+                  {entry.name}
+                  {entry.type === 'directory' && '/'}
+                </span>
               </li>
             );
           })}

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Logo } from '@/components/logo';
 import { api, setToken } from '@/lib/api';
 
 /** Placeholder sign-in: an API token from APP_USERS on the server. */
@@ -12,7 +13,7 @@ export function SignIn({ onSignIn }: { onSignIn: (token: string, resourceId: str
   return (
     <div className="grid h-screen place-items-center bg-background text-foreground">
       <form
-        className="flex w-80 flex-col gap-3"
+        className="flex w-80 flex-col gap-2"
         onSubmit={async event => {
           event.preventDefault();
           try {
@@ -24,11 +25,12 @@ export function SignIn({ onSignIn }: { onSignIn: (token: string, resourceId: str
           }
         }}
       >
-        <h1 className="text-lg font-semibold">
-          agent<span className="text-sky-400">threads</span>
-        </h1>
-        <Label htmlFor="token">Access token</Label>
-        <Input id="token" type="password" value={token} onChange={e => setValue(e.target.value)} autoFocus />
+        <Logo />
+        <p className="mb-3 text-sm text-muted-foreground">Agents that start agents, each with its own sandbox.</p>
+        <Label htmlFor="token" className="font-mono text-xs font-normal text-faint">
+          access token
+        </Label>
+        <Input id="token" type="password" className="font-mono" value={token} onChange={e => setValue(e.target.value)} autoFocus />
         {error && <p className="text-sm text-destructive">{error}</p>}
         <Button type="submit" disabled={!token}>
           Sign in
