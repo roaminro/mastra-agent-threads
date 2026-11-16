@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Agent threads — UI mockup</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #161920; --panel2: #1c2029; --line: #272c37;
+    --text: #e6e8ee; --muted: #8b93a3; --accent: #7cc4ff; --green: #5fd38d;
+    --yellow: #f2c45a; --red: #ff7b7b; --purple: #c49bff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; }
+  code, pre, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  .banner { background: #2a2140; color: #d9c8ff; padding: 6px 14px; font-size: 12.5px; border-bottom: 1px solid #3b2f5c; }
+  .banner b { color: #fff; }
+
+  header { display: flex; align-items: center; gap: 14px; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  header .logo { font-weight: 700; letter-spacing: .2px; }
+  header .logo span { color: var(--accent); }
+  header .spacer { flex: 1; }
+  .btn { background: var(--panel2); border: 1px solid var(--line); border-radius: 7px; padding: 6px 12px; }
+  .btn.primary { background: var(--accent); color: #08131d; border-color: var(--accent); font-weight: 600; }
+  .btn.danger { border-color: #5a2a2a; color: var(--red); }
+  .user { display: flex; align-items: center; gap: 8px; color: var(--muted); }
+  .avatar { width: 26px; height: 26px; border-radius: 50%; background: #2d6a8f; color: #fff; display: grid; place-items: center; font-size: 12px; font-weight: 700; }
+
+  main { flex: 1; display: grid; grid-template-columns: 290px 1fr 360px; min-height: 0; }
+  aside, section { min-height: 0; overflow: auto; }
+  aside.left { border-right: 1px solid var(--line); background: var(--panel); padding: 12px 8px; }
+  aside.right { border-left: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; }
+  h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); margin: 10px 8px 6px; font-weight: 600; }
+
+  .tree { list-style: none; margin: 0; padding: 0; }
+  .tree ul { list-style: none; margin: 0; padding-left: 16px; border-left: 1px dashed var(--line); margin-left: 14px; }
+  .node { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 7px; cursor: pointer; }
+  .node:hover { background: var(--panel2); }
+  .node.active { background: #1f2d3d; outline: 1px solid #2f4a66; }
+  .node .title { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .dot.running { background: var(--green); box-shadow: 0 0 0 3px #5fd38d33; animation: pulse 1.4s infinite; }
+  .dot.done { background: var(--muted); }
+  .dot.blocked { background: var(--yellow); }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 6px #5fd38d11; } }
+  .node .x { opacity: 0; color: var(--muted); border: 0; background: none; padding: 0 2px; }
+  .node:hover .x { opacity: 1; }
+  .node .x:hover { color: var(--red); }
+  .node.closed .title { color: var(--muted); }
+  .clist { margin: 10px 0 0; padding-left: 18px; }
+  .clist li { margin: 3px 0; }
+  .chip { font-size: 11px; padding: 1px 6px; border-radius: 5px; background: var(--panel2); border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+  .chip.sb { color: var(--purple); border-color: #3c2f57; }
+
+  section.center { display: flex; flex-direction: column; }
+  .thread-head { padding: 12px 18px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 10px; }
+  .thread-head .t { font-weight: 600; font-size: 15px; }
+  .thread-head .meta { color: var(--muted); font-size: 12px; }
+  .msgs { flex: 1; overflow: auto; padding: 18px; display: flex; flex-direction: column; gap: 14px; }
+  .msg { max-width: 760px; }
+  .msg.user { align-self: flex-end; background: #1f3346; border: 1px solid #2c4a66; padding: 9px 13px; border-radius: 10px; }
+  .msg.agent p { margin: 0 0 6px; }
+  .tool { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); overflow: hidden; margin: 6px 0; }
+  .tool summary { padding: 7px 10px; cursor: pointer; display: flex; gap: 8px; align-items: center; color: var(--muted); list-style: none; }
+  .tool summary b { color: var(--text); font-weight: 600; }
+  .tool pre { margin: 0; padding: 9px 12px; background: #0b0d11; border-top: 1px solid var(--line); color: #b9c2d0; white-space: pre-wrap; }
+  .report { border: 1px solid #2f5a42; background: #13241b; border-radius: 9px; padding: 10px 13px; }
+  .report .h { display: flex; gap: 8px; align-items: center; color: var(--green); font-weight: 600; margin-bottom: 4px; }
+  .report.blocked { border-color: #5c4a20; background: #241f12; }
+  .report.blocked .h { color: var(--yellow); }
+  .spawn { border: 1px dashed #2f4a66; border-radius: 9px; padding: 8px 12px; color: var(--muted); display: flex; gap: 8px; align-items: center; }
+  .spawn a { color: var(--accent); cursor: pointer; }
+  .typing { color: var(--muted); font-style: italic; }
+  .composer { border-top: 1px solid var(--line); padding: 12px 18px; display: flex; gap: 8px; background: var(--panel); }
+  .composer textarea { flex: 1; resize: none; height: 44px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; color: var(--text); padding: 10px; font: inherit; }
+
+  .tabs { display: flex; border-bottom: 1px solid var(--line); }
+  .tabs button { flex: 1; background: none; border: 0; padding: 10px; color: var(--muted); border-bottom: 2px solid transparent; }
+  .tabs button.on { color: var(--text); border-bottom-color: var(--accent); }
+  .pane { padding: 10px; overflow: auto; flex: 1; }
+  .sbinfo { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; margin-bottom: 10px; font-size: 12.5px; color: var(--muted); }
+  .sbinfo b { color: var(--text); }
+  .files { list-style: none; padding: 0; margin: 0; }
+  .files li { padding: 4px 8px; border-radius: 6px; cursor: pointer; display: flex; gap: 8px; }
+  .files li:hover { background: var(--panel2); }
+  .files li.on { background: #1f2d3d; }
+  .files .ind { padding-left: 22px; }
+  .viewer { margin-top: 10px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .viewer .vh { padding: 6px 10px; background: var(--panel2); color: var(--muted); font-size: 12px; display: flex; justify-content: space-between; }
+  .viewer pre { margin: 0; padding: 10px; background: #0b0d11; max-height: 260px; overflow: auto; }
+  .later { margin-top: 12px; border: 1px dashed var(--line); border-radius: 8px; padding: 10px; color: var(--muted); font-size: 12.5px; }
+  .later b { color: var(--text); }
+
+  .modal-bg { position: fixed; inset: 0; background: #000a; display: none; place-items: center; }
+  .modal-bg.on { display: grid; }
+  .modal { width: 520px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; }
+  .modal h2 { margin: 0 0 12px; font-size: 17px; }
+  .modal label { display: block; color: var(--muted); font-size: 12px; margin: 10px 0 4px; }
+  .modal input, .modal textarea, .modal select { width: 100%; background: var(--bg); border: 1px solid var(--line); border-radius: 7px; color: var(--text); padding: 8px; font: inherit; }
+  .modal textarea { height: 100px; resize: vertical; }
+  .seg { display: flex; gap: 6px; }
+  .seg button { flex: 1; background: var(--bg); border: 1px solid var(--line); border-radius: 7px; padding: 8px; text-align: left; }
+  .seg button.on { border-color: var(--accent); background: #13202c; }
+  .seg small { display: block; color: var(--muted); font-size: 11.5px; }
+  .modal .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+
+  .note { position: relative; }
+  .note::after { content: attr(data-note); position: absolute; top: -8px; right: -6px; transform: translateY(-100%); background: #3b2f5c; color: #e9ddff; font-size: 11px; padding: 3px 7px; border-radius: 5px; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity .15s; z-index: 5; }
+  body.notes .note::after { opacity: 1; }
+</style>
+</head>
+<body>
+<div class="banner"><b>Mockup</b> — static HTML with sample data, nothing is wired to the server. Click threads in the tree, the file list, and <b>New task</b>. <a href="#" id="toggleNotes" style="color:#fff">Show what each part is built from</a></div>
+
+<header>
+  <div class="logo">agent<span>threads</span></div>
+  <span class="chip">project: acme/web</span>
+  <div class="spacer"></div>
+  <button class="btn primary note" data-note="custom route: create thread + sandbox metadata" onclick="openModal()">+ New task</button>
+  <div class="user note" data-note="SimpleAuth token → resourceId"><div class="avatar">A</div>Alice</div>
+</header>
+
+<main>
+  <!-- Left: thread tree -->
+  <aside class="left">
+    <h3 class="note" data-note="thread list + parentThreadId / sandboxId metadata">Agents</h3>
+    <ul class="tree" id="tree"></ul>
+    <h3 id="closedH">Closed</h3>
+    <ul class="tree" id="closed"></ul>
+    <h3>Sandboxes</h3>
+    <ul class="tree" id="sandboxes"></ul>
+    <div style="color:var(--muted);font-size:12px;padding:8px" id="limits"></div>
+  </aside>
+
+  <!-- Center: thread view -->
+  <section class="center">
+    <div class="thread-head">
+      <span class="dot" id="hdot"></span>
+      <div>
+        <div class="t" id="htitle"></div>
+        <div class="meta" id="hmeta"></div>
+      </div>
+      <div style="flex:1"></div>
+      <button class="btn danger note" data-note="threads/abort (interrupt)" id="stopBtn">■ Stop</button>
+      <button class="btn note" data-note="custom route: close (stop subtree, keep files)" id="closeBtn" onclick="askClose()">Close</button>
+      <button class="btn danger note" data-note="custom route: delete threads + unused folders" onclick="askDelete()">Delete</button>
+    </div>
+    <div class="msgs note" data-note="stream / threads/subscribe" id="msgs"></div>
+    <div class="composer">
+      <textarea placeholder="Message this agent — it reaches it mid-task or wakes it up"></textarea>
+      <button class="btn primary">Send</button>
+    </div>
+  </section>
+
+  <!-- Right: sandbox panel -->
+  <aside class="right">
+    <div class="tabs"><button class="on">Files</button></div>
+    <div class="pane">
+      <div class="sbinfo" id="sbinfo"></div>
+      <ul class="files note" data-note="custom route: list files (ownership checked)" id="files"></ul>
+      <div class="viewer note" data-note="custom route: read file">
+        <div class="vh"><span id="vname"></span><span>read-only</span></div>
+        <pre id="vbody"></pre>
+      </div>
+    </div>
+  </aside>
+</main>
+
+<!-- New task modal -->
+<div class="modal-bg" id="modal" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <h2>New task</h2>
+    <label>Title</label>
+    <input value="Upgrade to React 19" />
+    <label>Instructions</label>
+    <textarea>Upgrade the app to React 19. Fix type errors and failing tests. Split the work across agents if it helps, and push a branch when done.</textarea>
+    <label>Sandbox</label>
+    <div class="seg" id="seg">
+      <button class="on"><b>main</b><small>Your default sandbox and its files</small></button>
+      <button><b>New sandbox</b><small>Fresh folder; counts toward 5</small></button>
+      <button><b>Existing…</b><small>sb-7f70… / sb-91ac…</small></button>
+    </div>
+    <div class="actions">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn primary" onclick="closeModal()">Start agent</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="confirm" onclick="if(event.target===this)closeConfirm()">
+  <div class="modal">
+    <h2 id="ctitle"></h2>
+    <div id="cbody" style="color:var(--muted)"></div>
+    <div class="actions">
+      <button class="btn" onclick="closeConfirm()">Cancel</button>
+      <button class="btn" id="cok"></button>
+    </div>
+  </div>
+</div>
+
+<script>
+const threads = {
+  root: {
+    title: 'Fix failing CI on main', status: 'running', sandbox: 'main', depth: 0, parent: null,
+    msgs: [
+      { role: 'user', text: 'CI on main is failing. Find out why and fix it. Tests and lint seem to be separate problems.' },
+      { role: 'agent', text: 'I\'ll check the latest run first.', tools: [
+        { name: 'execute_command', arg: 'gh run list --status failure --limit 3', out: 'ci.yml   a1b2c3d  failure  2h ago\nlint.yml a1b2c3d  failure  2h ago' },
+      ]},
+      { role: 'agent', text: 'Two independent failures. I\'ll split them so they run in parallel.' },
+      { role: 'spawn', id: 'tests', text: 'Started <b>Fix auth tests</b> in a <b>new sandbox</b>' },
+      { role: 'spawn', id: 'lint', text: 'Started <b>Fix lint errors</b> in <b>this sandbox</b> (shared)' },
+      { role: 'report', from: 'lint', status: 'done', text: 'Fixed 4 lint errors in src/api/*.ts (unused imports, one any). Lint passes locally. Changes are uncommitted in /mnt/work.' },
+      { role: 'typing', text: 'Waiting for Fix auth tests to report…' },
+    ],
+    files: [['📁','src'],['📄','src/api/users.ts',1],['📄','src/api/session.ts',1],['📄','package.json'],['📄','README.md']],
+    view: ['src/api/session.ts', "import { verify } from './jwt';\n\nexport async function getSession(token: string) {\n  const claims = await verify(token);\n  return { userId: claims.sub, expires: claims.exp };\n}"],
+  },
+  tests: {
+    title: 'Fix auth tests', status: 'running', sandbox: 'sb-7f70…', depth: 1, parent: 'root',
+    msgs: [
+      { role: 'user', from: 'Fix failing CI on main', text: 'auth.test.ts fails on main since commit a1b2c3d. Find the cause, fix it, push to branch fix/auth-tests and report back.' },
+      { role: 'agent', text: 'Cloning and running the failing test.', tools: [
+        { name: 'execute_command', arg: 'git clone … && npm ci && npx vitest run auth', out: 'FAIL  src/auth/auth.test.ts > refreshes expired tokens\n  expected 200, received 401' },
+      ]},
+      { role: 'agent', text: 'The refresh path compares exp in ms against seconds. It needs a regression test too — handing that off.' },
+      { role: 'spawn', id: 'regress', text: 'Started <b>Write regression test</b> in <b>this sandbox</b> (shared)' },
+      { role: 'typing', text: 'Running tests…' },
+    ],
+    files: [['📁','repo'],['📄','repo/src/auth/refresh.ts',1],['📄','repo/src/auth/auth.test.ts',1]],
+    view: ['repo/src/auth/refresh.ts', "export function isExpired(exp: number) {\n- return exp < Date.now();\n+ return exp * 1000 < Date.now();\n}"],
+  },
+  regress: {
+    title: 'Write regression test', status: 'done', sandbox: 'sb-7f70…', depth: 2, parent: 'tests',
+    msgs: [
+      { role: 'user', from: 'Fix auth tests', text: 'Add a test in auth.test.ts that fails with exp in seconds before the fix.' },
+      { role: 'agent', text: 'Added "treats exp as seconds". It fails on the old code and passes with the fix.', tools: [
+        { name: 'execute_command', arg: 'npx vitest run auth', out: '✓ src/auth/auth.test.ts (6 tests)' },
+        { name: 'report_to_parent', arg: '{ status: "done", … }', out: '{ delivered: true }' },
+      ]},
+    ],
+    files: [['📁','repo'],['📄','repo/src/auth/auth.test.ts',1]],
+    view: ['repo/src/auth/auth.test.ts', "it('treats exp as seconds', () => {\n  const exp = Math.floor(Date.now() / 1000) + 60;\n  expect(isExpired(exp)).toBe(false);\n});"],
+  },
+  lint: {
+    title: 'Fix lint errors', status: 'done', sandbox: 'main', depth: 1, parent: 'root',
+    msgs: [
+      { role: 'user', from: 'Fix failing CI on main', text: 'Fix the lint failures in src/api only. Don\'t touch src/auth; another agent is working there.' },
+      { role: 'agent', text: 'Done — 4 errors fixed, lint passes.', tools: [
+        { name: 'execute_command', arg: 'npx eslint src/api --fix && npx eslint src/api', out: '✔ No problems' },
+      ]},
+    ],
+    files: [['📁','src'],['📄','src/api/users.ts',1],['📄','src/api/session.ts',1]],
+    view: ['src/api/users.ts', "import { db } from '../db';\n\nexport function getUser(id: string) {\n  return db.user.find(id);\n}"],
+  },
+  older: {
+    title: 'Add dark mode', status: 'blocked', sandbox: 'sb-91ac…', depth: 0, parent: null, closed: true,
+    msgs: [
+      { role: 'user', text: 'Add a dark mode toggle to the settings page.' },
+      { role: 'report', from: 'self', status: 'blocked', text: 'Blocked: the design tokens package is private and the sandbox has no npm token. Add one or vendor the tokens.' },
+    ],
+    files: [['📁','repo'],['📄','repo/src/settings/Theme.tsx',1]],
+    view: ['repo/src/settings/Theme.tsx', "export function ThemeToggle() {\n  // TODO: needs @acme/tokens\n  return null;\n}"],
+  },
+};
+
+let current = 'root';
+const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;');
+
+const kids = id => Object.keys(threads).filter(k => threads[k].parent === id);
+const subtree = id => [id, ...kids(id).flatMap(subtree)];
+const rootOf = id => threads[id].parent ? rootOf(threads[id].parent) : id;
+
+function renderTree() {
+  const node = id => {
+    const t = threads[id], ch = kids(id);
+    return `<li><div class="node ${id===current?'active':''} ${threads[rootOf(id)].closed?'closed':''}" onclick="select('${id}')">
+      <span class="dot ${t.status}"></span><span class="title">${t.title}</span><span class="chip sb">${t.sandbox}</span>
+      <button class="x" title="Delete" onclick="event.stopPropagation();askDelete('${id}')">✕</button></div>
+      ${ch.length ? `<ul>${ch.map(node).join('')}</ul>` : ''}</li>`;
+  };
+  const roots = kids(null);
+  document.getElementById('tree').innerHTML = roots.filter(r => !threads[r].closed).map(node).join('') || '<div style="color:var(--muted);padding:8px">No open tasks.</div>';
+  const closed = roots.filter(r => threads[r].closed);
+  document.getElementById('closed').innerHTML = closed.map(node).join('');
+  document.getElementById('closedH').style.display = closed.length ? '' : 'none';
+
+  const used = {};
+  for (const t of Object.values(threads)) used[t.sandbox] = (used[t.sandbox] || 0) + 1;
+  const sbs = ['main', ...Object.keys(used).filter(s => s !== 'main')];
+  document.getElementById('sandboxes').innerHTML = sbs.map(s => `<li><div class="node"><span class="chip sb">${s}</span><span class="title" style="color:var(--muted)">${used[s] || 0} agent(s)</span></div></li>`).join('');
+  const running = Object.values(threads).filter(t => t.status === 'running').length;
+  document.getElementById('limits').textContent = `${sbs.length} of 6 sandboxes · ${running} of 10 agents running`;
+}
+
+// Close: stop every running agent in the task and move it to "Closed".
+// History and files stay; sending a message reopens it.
+function askClose() {
+  const root = rootOf(current), t = threads[root];
+  if (t.closed) { t.closed = false; return select(current); }
+  const ids = subtree(root), running = ids.filter(i => threads[i].status === 'running');
+  confirmBox(`Close "${t.title}"?`,
+    `${running.length ? `Stops ${running.length} running agent(s): <ul class="clist">${running.map(i => `<li>${threads[i].title}</li>`).join('')}</ul>` : 'No agents are running.'}
+     <p>The task moves to <b>Closed</b>. Its conversation and sandbox files are kept, and you can reopen it.</p>`,
+    'Close task', false, () => { ids.forEach(i => { if (threads[i].status === 'running') threads[i].status = 'done'; }); t.closed = true; select(current); });
+}
+
+// Delete: remove the thread and every agent it started, then remove sandbox
+// folders no remaining thread uses. `main` is never deleted.
+function askDelete(id = current) {
+  const ids = subtree(id), t = threads[id];
+  const remaining = Object.keys(threads).filter(k => !ids.includes(k));
+  const freed = [...new Set(ids.map(i => threads[i].sandbox))].filter(s => s !== 'main' && !remaining.some(k => threads[k].sandbox === s));
+  const kept = [...new Set(ids.map(i => threads[i].sandbox))].filter(s => !freed.includes(s));
+  confirmBox(`Delete "${t.title}"?`,
+    `Deletes ${ids.length} thread(s)${ids.length > 1 ? ', including every agent it started' : ''}:
+     <ul class="clist">${ids.map(i => `<li>${threads[i].title}${threads[i].status === 'running' ? ' <span style="color:var(--green)">(running, will be stopped)</span>' : ''}</li>`).join('')}</ul>
+     ${freed.length ? `<p>Also deletes sandbox folder(s) nothing else uses: ${freed.map(s => `<span class="chip sb">${s}</span>`).join(' ')} — files there are gone for good.</p>` : ''}
+     ${kept.length ? `<p>Keeps ${kept.map(s => `<span class="chip sb">${s}</span>`).join(' ')}, still used by other threads.</p>` : ''}
+     <p>This can't be undone.</p>`,
+    'Delete', true, () => {
+      ids.forEach(i => delete threads[i]);
+      if (!threads[current]) current = Object.keys(threads)[0];
+      current ? select(current) : empty();
+    });
+}
+
+function confirmBox(title, body, label, danger, onOk) {
+  document.getElementById('ctitle').textContent = title;
+  document.getElementById('cbody').innerHTML = body;
+  const ok = document.getElementById('cok');
+  ok.textContent = label; ok.className = 'btn ' + (danger ? 'danger' : 'primary');
+  ok.onclick = () => { closeConfirm(); onOk(); };
+  document.getElementById('confirm').classList.add('on');
+}
+function closeConfirm() { document.getElementById('confirm').classList.remove('on'); }
+function empty() { renderTree(); document.querySelector('section.center').innerHTML = '<div style="margin:auto;color:var(--muted)">No threads. Start a new task.</div>'; }
+
+function renderThread() {
+  const t = threads[current];
+  document.getElementById('hdot').className = 'dot ' + t.status;
+  document.getElementById('htitle').textContent = t.title;
+  const parent = t.parent ? ` · started by <a style="color:var(--accent);cursor:pointer" onclick="select('${t.parent}')">${threads[t.parent].title}</a>` : '';
+  document.getElementById('hmeta').innerHTML = `${t.status} · sandbox <span class="chip sb">${t.sandbox}</span> · depth ${t.depth}${parent}`;
+  document.getElementById('stopBtn').style.display = t.status === 'running' ? '' : 'none';
+  const closed = threads[rootOf(current)].closed;
+  document.getElementById('closeBtn').textContent = closed ? 'Reopen' : 'Close task';
+  if (closed) document.getElementById('hmeta').innerHTML += ' · <span class="chip">closed</span>';
+  document.getElementById('msgs').innerHTML = t.msgs.map(m => {
+    if (m.role === 'user') return `<div class="msg user">${m.from ? `<div style="font-size:11px;color:var(--muted)">from agent · ${m.from}</div>` : ''}${esc(m.text)}</div>`;
+    if (m.role === 'spawn') return `<div class="spawn">↳ <span>${m.text}</span> <a onclick="select('${m.id}')">open →</a></div>`;
+    if (m.role === 'typing') return `<div class="typing">● ${m.text}</div>`;
+    if (m.role === 'report') return `<div class="report ${m.status}"><div class="h">${m.status==='done'?'✓':'!'} Report ${m.from!=='self'?`from <a style="color:inherit;text-decoration:underline;cursor:pointer" onclick="select('${m.from}')">${threads[m.from].title}</a>`:''} · ${m.status}</div>${esc(m.text)}</div>`;
+    return `<div class="msg agent"><p>${esc(m.text)}</p>${(m.tools||[]).map(x => `<details class="tool"><summary>⚙ <b>${x.name}</b> <span class="mono">${esc(x.arg)}</span></summary><pre>${esc(x.out)}</pre></details>`).join('')}</div>`;
+  }).join('');
+  document.getElementById('sbinfo').innerHTML = `Sandbox <b>${t.sandbox}</b> · files in <code>/mnt/work</code><br>${Object.values(threads).filter(x=>x.sandbox===t.sandbox).length} agent(s) share it · machine ${t.status==='running'?'<span style="color:var(--green)">running</span>':'stopped (starts on next command)'}`;
+  document.getElementById('files').innerHTML = t.files.map(([i,p,ind]) => `<li class="${p===t.view[0]?'on':''} ${ind?'ind':''}" onclick="view('${p}')">${i} ${p.split('/').pop()}</li>`).join('');
+  document.getElementById('vname').textContent = '/mnt/work/' + t.view[0];
+  document.getElementById('vbody').textContent = t.view[1];
+}
+
+function select(id) { current = id; renderTree(); renderThread(); }
+function view(p) { if (!p.includes('.')) return; const t = threads[current]; if (p !== t.view[0]) t.view = [p, '// ' + p + '\n// (sample content)']; renderThread(); }
+function openModal() { document.getElementById('modal').classList.add('on'); }
+function closeModal() { document.getElementById('modal').classList.remove('on'); }
+document.querySelectorAll('#seg button').forEach(b => b.onclick = () => { document.querySelectorAll('#seg button').forEach(x => x.classList.remove('on')); b.classList.add('on'); });
+document.getElementById('toggleNotes').onclick = e => { e.preventDefault(); document.body.classList.toggle('notes'); e.target.textContent = document.body.classList.contains('notes') ? 'Hide build notes' : 'Show what each part is built from'; };
+select('root');
+</script>
+</body>
+</html>

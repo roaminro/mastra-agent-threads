@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent threads: architecture</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --panel2: #1e222b; --line: #2c313c;
+    --text: #e6e8ec; --muted: #9aa3b2; --accent: #7cc4ff; --green: #7ee2a8;
+    --amber: #ffd27a; --pink: #ff9ec7; --violet: #b9a6ff; --red: #ff8a8a;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif; }
+  main { max-width: 1120px; margin: 0 auto; padding: 48px 28px 96px; }
+  h1 { font-size: 30px; margin: 0 0 6px; letter-spacing: -0.01em; }
+  h2 { font-size: 20px; margin: 56px 0 14px; padding-top: 18px; border-top: 1px solid var(--line); }
+  h3 { font-size: 15px; margin: 0 0 6px; }
+  p { margin: 0 0 12px; }
+  .lede { color: var(--muted); font-size: 16px; max-width: 820px; }
+  code { font: 12.5px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--panel2); border: 1px solid var(--line); padding: 1px 5px; border-radius: 4px; }
+  nav { display: flex; flex-wrap: wrap; gap: 8px; margin: 22px 0 0; }
+  nav a { color: var(--muted); text-decoration: none; font-size: 13px; border: 1px solid var(--line); border-radius: 999px; padding: 4px 11px; }
+  nav a:hover { color: var(--text); border-color: var(--accent); }
+
+  /* layered stack */
+  .stack { display: grid; gap: 10px; }
+  .layer { display: grid; grid-template-columns: 170px 1fr; gap: 14px; align-items: stretch; }
+  .layer-label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; padding-top: 14px; }
+  .row { display: flex; flex-wrap: wrap; gap: 10px; }
+  .box { flex: 1 1 180px; background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--c, var(--accent)); border-radius: 8px; padding: 12px 14px; }
+  .box small { display: block; color: var(--muted); font-size: 12.5px; margin-top: 3px; }
+  .arrow { text-align: center; color: var(--muted); font-size: 12px; margin-left: 184px; }
+  .arrow::before { content: "↓ "; color: var(--accent); }
+
+  /* thread tree */
+  .tree { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 20px; overflow-x: auto; }
+  svg text { font-family: -apple-system, BlinkMacSystemFont, Inter, sans-serif; }
+
+  table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; font-size: 14px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { background: var(--panel2); color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+  tr:last-child td { border-bottom: 0; }
+
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+  .card ul { margin: 6px 0 0; padding-left: 18px; }
+  .card li { margin: 4px 0; }
+  .tag { display: inline-block; font-size: 11px; border-radius: 4px; padding: 1px 6px; margin-left: 6px; vertical-align: 1px; }
+  .tag.ok { background: #1d3a2a; color: var(--green); }
+  .tag.gap { background: #3d2424; color: var(--red); }
+  .tag.local { background: #3a3220; color: var(--amber); }
+
+  ol.seq { counter-reset: s; list-style: none; padding: 0; margin: 0; }
+  ol.seq li { counter-increment: s; position: relative; padding: 10px 12px 10px 48px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; margin-bottom: 8px; }
+  ol.seq li::before { content: counter(s); position: absolute; left: 12px; top: 9px; width: 24px; height: 24px; border-radius: 50%; background: var(--panel2); border: 1px solid var(--accent); color: var(--accent); font-size: 12px; display: grid; place-items: center; }
+  .who { color: var(--violet); font-weight: 600; }
+  footer { margin-top: 64px; color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Agent threads: architecture</h1>
+  <p class="lede">A proof of concept for cloud coding agents. One Mastra agent, <code>dev</code>, where <strong>every thread is an agent</strong>. Agents start other agents with tools, talk to each other with signals, and run commands in per-user Modal sandboxes whose files live on a durable Modal volume. Several users share one server without seeing each other's threads, sandboxes, or files.</p>
+  <nav>
+    <a href="#layers">Layers</a><a href="#threads">Threads as agents</a><a href="#tools">Tools</a>
+    <a href="#storage">Files &amp; sandboxes</a><a href="#flow">start_agent flow</a><a href="#users">Several users</a>
+    <a href="#limits">Limits</a><a href="#gaps">Known gaps</a><a href="#files">Source files</a>
+  </nav>
+
+  <h2 id="layers">Layers</h2>
+  <div class="stack">
+    <div class="layer"><div class="layer-label">Clients</div>
+      <div class="row">
+        <div class="box" style="--c:var(--accent)"><h3>Studio</h3><small>Chat with a thread, inspect traces</small></div>
+        <div class="box" style="--c:var(--accent)"><h3>HTTP API</h3><small><code>/api/agents/dev/stream</code>, <code>/send-message</code>, <code>/api/memory/threads</code></small></div>
+      </div></div>
+    <div class="arrow">Bearer token</div>
+    <div class="layer"><div class="layer-label">Sign-in</div>
+      <div class="row">
+        <div class="box" style="--c:var(--pink)"><h3>SimpleAuth (placeholder)</h3><small>Tokens from <code>APP_USERS</code>. Swap for Clerk, WorkOS, Auth0…</small></div>
+        <div class="box" style="--c:var(--pink)"><h3><code>mapUserToResourceId</code></h3><small>User id → reserved <code>MASTRA_RESOURCE_ID_KEY</code>. Clients can't override it; other users' threads return 403.</small></div>
+      </div></div>
+    <div class="arrow">resourceId = user</div>
+    <div class="layer"><div class="layer-label">Mastra server</div>
+      <div class="row">
+        <div class="box" style="--c:var(--violet)"><h3><code>dev</code> agent</h3><small><code>anthropic/claude-sonnet-5-5</code>. Instructions change when the thread is a child.</small></div>
+        <div class="box" style="--c:var(--violet)"><h3>Agent-thread tools</h3><small>start / message / interrupt / list / read agents, report to parent</small></div>
+        <div class="box" style="--c:var(--violet)"><h3>Memory</h3><small>Threads + observational memory (<code>anthropic/claude-haiku-5-5</code>) to compress long logs</small></div>
+        <div class="box" style="--c:var(--violet)"><h3>Signals</h3><small>Wake idle threads or deliver into running ones</small></div>
+      </div></div>
+    <div class="arrow">workspace resolved per run</div>
+    <div class="layer"><div class="layer-label">Workspace</div>
+      <div class="row">
+        <div class="box" style="--c:var(--amber)"><h3><code>resolveWorkspace</code></h3><small>Reads user + <code>sandboxId</code> from request context, checks ownership, returns a cached <code>Workspace</code></small></div>
+        <div class="box" style="--c:var(--amber)"><h3>Workspace tools</h3><small>File tools via <code>ModalFilesystem</code>; <code>execute_command</code> via <code>ModalSandbox</code> — same folder</small></div>
+      </div></div>
+    <div class="arrow">Modal API</div>
+    <div class="layer"><div class="layer-label">Compute &amp; files</div>
+      <div class="row">
+        <div class="box" style="--c:var(--green)"><h3>Modal sandbox (VM)</h3><small><code>node:22-bookworm</code>, <code>gh</code> on start, 1 h limit, disposable</small></div>
+        <div class="box" style="--c:var(--green)"><h3>Modal volume per user</h3><small><code>work-&lt;user-hash&gt;</code>, folder per sandbox mounted at <code>/mnt/work</code></small></div>
+      </div></div>
+    <div class="layer"><div class="layer-label">Persistence</div>
+      <div class="row">
+        <div class="box" style="--c:var(--muted)"><h3>LibSQL / Turso</h3><small>Threads, messages, thread metadata (<code>sandboxId</code>, <code>parentThreadId</code>, depth)</small></div>
+        <div class="box" style="--c:var(--muted)"><h3>Observability</h3><small><code>MastraPlatformExporter</code> → Platform traces</small></div>
+      </div></div>
+  </div>
+
+  <h2 id="threads">Threads as agents</h2>
+  <p>There is no subagent registry. A child is a new thread of the same <code>dev</code> agent whose metadata names its parent and its sandbox. Children are real threads: you can open them in Studio, read them, and message them.</p>
+  <div class="tree">
+    <svg viewBox="0 0 1040 400" width="100%" role="img" aria-label="Thread tree">
+      <defs>
+        <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#7cc4ff"/></marker>
+        <marker id="g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#7ee2a8"/></marker>
+        <marker id="p" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="#ff9ec7"/></marker>
+      </defs>
+      <!-- sandbox regions -->
+      <rect x="20" y="20" width="560" height="360" rx="12" fill="#1a2420" stroke="#2f5a43" stroke-dasharray="5 4"/>
+      <text x="36" y="44" fill="#7ee2a8" font-size="13" font-weight="600">sandbox "main"  →  /mnt/work  (volume folder main/)</text>
+      <rect x="640" y="20" width="380" height="360" rx="12" fill="#1a2420" stroke="#2f5a43" stroke-dasharray="5 4"/>
+      <text x="656" y="44" fill="#7ee2a8" font-size="13" font-weight="600">sandbox "sb-…"  →  /mnt/work  (folder sb-…/)</text>
+
+      <!-- parent -->
+      <rect x="200" y="70" width="240" height="70" rx="10" fill="#171a21" stroke="#b9a6ff"/>
+      <text x="320" y="98" fill="#e6e8ec" font-size="15" font-weight="600" text-anchor="middle">Parent thread</text>
+      <text x="320" y="120" fill="#9aa3b2" font-size="12" text-anchor="middle">user's chat · depth 0</text>
+
+      <!-- child shared -->
+      <rect x="60" y="270" width="240" height="80" rx="10" fill="#171a21" stroke="#b9a6ff"/>
+      <text x="180" y="298" fill="#e6e8ec" font-size="15" font-weight="600" text-anchor="middle">agent-… (shared)</text>
+      <text x="180" y="319" fill="#9aa3b2" font-size="12" text-anchor="middle">same VM + files, sees uncommitted work</text>
+      <text x="180" y="337" fill="#9aa3b2" font-size="12" text-anchor="middle">depth 1</text>
+
+      <!-- child new -->
+      <rect x="710" y="270" width="250" height="80" rx="10" fill="#171a21" stroke="#b9a6ff"/>
+      <text x="835" y="298" fill="#e6e8ec" font-size="15" font-weight="600" text-anchor="middle">agent-… (new)</text>
+      <text x="835" y="319" fill="#9aa3b2" font-size="12" text-anchor="middle">own VM + empty folder</text>
+      <text x="835" y="337" fill="#9aa3b2" font-size="12" text-anchor="middle">hand-off via git branch · depth 1</text>
+
+      <!-- start arrows -->
+      <path d="M260,140 C240,200 200,220 190,268" stroke="#7cc4ff" stroke-width="2" fill="none" marker-end="url(#a)"/>
+      <text x="120" y="200" fill="#7cc4ff" font-size="12">start_agent(sandbox: "shared")</text>
+      <path d="M420,140 C560,180 760,200 820,268" stroke="#7cc4ff" stroke-width="2" fill="none" marker-end="url(#a)"/>
+      <text x="560" y="168" fill="#7cc4ff" font-size="12">start_agent(sandbox: "new")</text>
+
+      <!-- message -->
+      <path d="M440,120 C600,130 700,220 760,268" stroke="#7ee2a8" stroke-width="1.5" stroke-dasharray="4 4" fill="none" marker-end="url(#g)"/>
+      <text x="610" y="232" fill="#7ee2a8" font-size="12">message_agent → reactive signal</text>
+
+      <!-- reports -->
+      <path d="M240,270 C290,230 300,190 300,142" stroke="#ff9ec7" stroke-width="1.5" fill="none" marker-end="url(#p)"/>
+      <text x="300" y="240" fill="#ff9ec7" font-size="12">report_to_parent</text>
+      <path d="M720,300 C560,300 420,240 380,142" stroke="#ff9ec7" stroke-width="1.5" fill="none" marker-end="url(#p)"/>
+      <text x="470" y="292" fill="#ff9ec7" font-size="12">&lt;agent-report&gt; notification wakes parent</text>
+    </svg>
+  </div>
+
+  <h2 id="tools">Tools</h2>
+  <table>
+    <tr><th>Tool</th><th>What it does</th><th>Under the hood</th></tr>
+    <tr><td><code>start_agent</code></td><td>Start a child on a task in <code>"shared"</code>, <code>"new"</code>, or an existing <code>sb-…</code> sandbox. Optional <code>idempotencyKey</code> returns the already-started child.</td><td>Creates thread <code>agent-&lt;uuid&gt;</code> with metadata, then <code>sendMessage</code> with the child's request context (user + sandbox + parent).</td></tr>
+    <tr><td><code>message_agent</code></td><td>Send a message to one of the user's agent threads.</td><td><code>sendSignal</code> type <code>reactive</code>, tag <code>agent-message</code>; wakes the thread if idle.</td></tr>
+    <tr><td><code>interrupt_agent</code></td><td>Stop a child mid-task. Only the caller's own children.</td><td><code>abortThreadStream({ clearPendingSignals: true })</code></td></tr>
+    <tr><td><code>report_to_parent</code></td><td>Child sends <code>done</code> / <code>blocked</code> + summary.</td><td><code>sendSignal</code> type <code>notification</code>, tag <code>agent-report</code>; wakes the parent.</td></tr>
+    <tr><td><code>list_agents</code></td><td>The caller's children, with sandbox and running state.</td><td><code>listThreads</code> filtered by <code>parentThreadId</code> + <code>listActiveThreadRuns</code></td></tr>
+    <tr><td><code>read_agent</code></td><td>Recent messages of one of the user's agent threads.</td><td><code>memory.recall</code></td></tr>
+  </table>
+
+  <h2 id="storage">Files &amp; sandboxes</h2>
+  <p>Storage grows with sandboxes (capped per user), not with threads.</p>
+  <table>
+    <tr><th>Thing</th><th>Tied to</th><th>How many</th><th>Lifetime</th></tr>
+    <tr><td>Modal volume <code>work-&lt;user-hash&gt;</code></td><td>A user</td><td>1 per user</td><td>Until deleted; created on first use</td></tr>
+    <tr><td>Folder in the volume</td><td>A sandbox id (<code>main</code>, <code>sb-…</code>)</td><td><code>main</code> + up to 5</td><td>Until deleted (no cleanup yet)</td></tr>
+    <tr><td>VM (<code>ModalSandbox</code>)</td><td>A sandbox in use</td><td>One per active sandbox</td><td>1 h max; next command starts a fresh one with the same folder</td></tr>
+    <tr><td>Thread</td><td>A conversation / agent</td><td>Many</td><td>Points at a folder via <code>sandboxId</code> metadata</td></tr>
+  </table>
+  <div class="grid2" style="margin-top:12px">
+    <div class="card"><h3>Mount</h3><p><code>volume.withMountOptions({ subPath: sandboxId })</code> at <code>/mnt/work</code>. A sandbox can only see its own folder. No bucket, no credentials in the VM.</p></div>
+    <div class="card"><h3>One view of the files</h3><p><code>ModalFilesystem({ basePath: '/mnt/work' })</code> means the file tools and <code>execute_command</code> read and write the same files. Commands start in <code>/root</code>, so the agent is told to use <code>cwd "/mnt/work"</code>.</p></div>
+    <div class="card"><h3>Local mode <span class="tag local">no Modal token</span></h3><p>Each sandbox is a folder <code>.sandboxes/&lt;user-hash&gt;/&lt;sandboxId&gt;</code> with <code>LocalFilesystem</code> + <code>LocalSandbox</code>.</p></div>
+    <div class="card"><h3>Workspace cache</h3><p>An agent resolves its workspace several times per run, so workspaces are cached per user + sandbox (up to 500, oldest dropped). A dropped one reconnects by id.</p></div>
+  </div>
+
+  <h2 id="flow">start_agent flow</h2>
+  <ol class="seq">
+    <li><span class="who">User</span> asks the parent thread to split work. Request is signed in; server sets <code>resourceId</code>.</li>
+    <li><span class="who">Parent</span> calls <code>start_agent({ task, sandbox: "new", idempotencyKey })</code>.</li>
+    <li><span class="who">Tool</span> checks depth ≤ 2, children ≤ 5 per thread, running ≤ 10 per user, extra sandboxes ≤ 5 per user; derives ids from the key if given.</li>
+    <li><span class="who">Tool</span> creates thread <code>agent-&lt;id&gt;</code> with metadata <code>{ sandboxId: "sb-&lt;id&gt;", parentThreadId, depth }</code>.</li>
+    <li><span class="who">Tool</span> sends the task with <code>sendMessage(…, { ifIdle: { streamOptions: { requestContext } } })</code>; the context carries user, sandbox, parent.</li>
+    <li><span class="who">Child run</span> resolves its workspace → ownership check → Modal VM starts with folder <code>sb-&lt;id&gt;/</code> mounted; <code>gh</code> installed.</li>
+    <li><span class="who">Child</span> works, then calls <code>report_to_parent</code> → <code>agent-report</code> notification signal.</li>
+    <li><span class="who">Parent</span> wakes (or receives it mid-run) and continues with the report.</li>
+  </ol>
+
+  <h2 id="users">Several users</h2>
+  <div class="grid2">
+    <div class="card"><h3>Identity <span class="tag ok">tested</span></h3><ul>
+      <li>Resource id comes only from sign-in (reserved key).</li>
+      <li>Server returns 403 for another user's thread.</li></ul></div>
+    <div class="card"><h3>Sandboxes <span class="tag ok">tested on Modal</span></h3><ul>
+      <li>Sandbox identity is <code>&lt;user-hash&gt;-&lt;sandboxId&gt;</code>; two users' <code>main</code> never meet.</li>
+      <li>A client-supplied <code>sandboxId</code> is trusted only if one of the user's threads already uses it.</li>
+      <li>Anonymous runs get no workspace.</li></ul></div>
+    <div class="card"><h3>Tools <span class="tag ok">tested</span></h3><ul>
+      <li>message / read only reach the same user's threads.</li>
+      <li>interrupt only reaches the caller's own children.</li></ul></div>
+    <div class="card"><h3>Shared credential <span class="tag gap">gap</span></h3><ul>
+      <li>Every sandbox gets the same <code>GH_TOKEN</code>. Use a read-only token, or per-user tokens before production.</li></ul></div>
+  </div>
+
+  <h2 id="limits">Limits</h2>
+  <table>
+    <tr><th>Limit</th><th>Value</th><th>Where</th></tr>
+    <tr><td>Nesting depth</td><td>2</td><td><code>MAX_DEPTH</code></td></tr>
+    <tr><td>Children per thread</td><td>5</td><td><code>MAX_CHILDREN</code></td></tr>
+    <tr><td>Extra sandboxes per user</td><td>5 (+ <code>main</code>)</td><td><code>MAX_SANDBOXES_PER_USER</code></td></tr>
+    <tr><td>Running agents per user</td><td>10 (per server process)</td><td><code>MAX_RUNNING_PER_USER</code></td></tr>
+    <tr><td>VM lifetime</td><td>1 hour</td><td><code>timeoutMs</code> in <code>workspaces/sandboxes.ts</code></td></tr>
+  </table>
+
+  <h2 id="gaps">Known gaps</h2>
+  <div class="grid2">
+    <div class="card"><h3>Folders are never deleted <span class="tag gap">gap</span></h3><p>Deleting threads leaves the folder; once no thread names it, the user can't reach it and it stops counting toward the limit. Needs a <code>delete_agent</code> tool or a scheduled sweep.</p></div>
+    <div class="card"><h3>Idle VMs keep running <span class="tag gap">gap</span></h3><p>A VM runs for its full hour even when idle, and a command running when it ends is cut off.</p></div>
+    <div class="card"><h3>One server process <span class="tag gap">gap</span></h3><p>Signals and the running-agent count are in-process. Multiple instances need shared PubSub (Redis / Valkey streams).</p></div>
+    <div class="card"><h3>Restarts &amp; Studio <span class="tag gap">gap</span></h3><p>A server restart stops running children. A message sent to a child from Studio doesn't carry its sandbox id, so it runs in <code>main</code>.</p></div>
+  </div>
+
+  <h2 id="files">Source files</h2>
+  <table>
+    <tr><th>File</th><th>Role</th></tr>
+    <tr><td><code>src/mastra/index.ts</code></td><td>Mastra instance: agent, LibSQL storage (Turso when configured), SimpleAuth + <code>mapUserToResourceId</code>, observability</td></tr>
+    <tr><td><code>src/mastra/agents/dev-agent.ts</code></td><td>The <code>dev</code> agent; child-aware instructions; observational memory; <code>workspace: resolveWorkspace</code></td></tr>
+    <tr><td><code>src/mastra/tools/agent-threads.ts</code></td><td>The seven agent-thread tools and limits</td></tr>
+    <tr><td><code>src/mastra/runs.ts</code></td><td>Records running threads so runs cut off by a restart show as interrupted</td></tr>
+    <tr><td><code>src/mastra/workspaces/sandboxes.ts</code></td><td>Modal volume/sandbox setup, ownership check, workspace cache, local fallback</td></tr>
+  </table>
+
+  <footer>mastra-agent-threads · tested with a scripted model locally and on Modal; not yet with a real model or deployed.</footer>
+</main>
+</body>
+</html>

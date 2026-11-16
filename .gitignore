@@ -1,0 +1,17 @@
+node_modules/
+.mastra/
+.sandboxes/
+dist/
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Local database and logs
+*.db
+*.db-shm
+*.db-wal
+*.log
+debug-*.jsonl
+.DS_Store

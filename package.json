@@ -1,0 +1,25 @@
+{
+  "name": "mastra-agent-threads",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "mastra dev",
+    "build": "mastra build",
+    "deploy": "mastra deploy",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@mastra/core": "latest",
+    "@mastra/libsql": "latest",
+    "@mastra/memory": "latest",
+    "@mastra/modal": "latest",
+    "@mastra/observability": "latest",
+    "modal": "^0.11.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "mastra": "latest",
+    "typescript": "^5.9.0"
+  }
+}
