@@ -61,17 +61,18 @@
 <body>
 <main>
   <h1>Agent threads: architecture</h1>
-  <p class="lede">A proof of concept for cloud coding agents. One Mastra agent, <code>dev</code>, where <strong>every thread is an agent</strong>. Agents start other agents with tools, talk to each other with signals, and run commands in per-user Modal sandboxes whose files live on a durable Modal volume. Several users share one server without seeing each other's threads, sandboxes, or files.</p>
+  <p class="lede">A proof of concept for cloud coding agents. One Mastra agent, <code>dev</code>, where <strong>every thread is an agent</strong>. Agents start other agents with tools, talk to each other with signals, and run commands in per-user Modal sandboxes whose files live on a durable Modal volume. Several users share one server without seeing each other's threads, sandboxes, or files. A web app shows each user their agent tree, conversations and sandbox files.</p>
   <nav>
     <a href="#layers">Layers</a><a href="#threads">Threads as agents</a><a href="#tools">Tools</a>
     <a href="#storage">Files &amp; sandboxes</a><a href="#flow">start_agent flow</a><a href="#users">Several users</a>
-    <a href="#limits">Limits</a><a href="#gaps">Known gaps</a><a href="#files">Source files</a>
+    <a href="#app">Web app</a><a href="#restarts">Restarts &amp; attention</a><a href="#limits">Limits</a><a href="#gaps">Known gaps</a><a href="#files">Source files</a>
   </nav>
 
   <h2 id="layers">Layers</h2>
   <div class="stack">
     <div class="layer"><div class="layer-label">Clients</div>
       <div class="row">
+        <div class="box" style="--c:var(--accent)"><h3>Web app</h3><small>Vite + React in <code>web/</code>: agent tree, chat, files, New task / Close / Delete / Resume</small></div>
         <div class="box" style="--c:var(--accent)"><h3>Studio</h3><small>Chat with a thread, inspect traces</small></div>
         <div class="box" style="--c:var(--accent)"><h3>HTTP API</h3><small><code>/api/agents/dev/stream</code>, <code>/send-message</code>, <code>/api/memory/threads</code></small></div>
       </div></div>
@@ -85,9 +86,11 @@
     <div class="layer"><div class="layer-label">Mastra server</div>
       <div class="row">
         <div class="box" style="--c:var(--violet)"><h3><code>dev</code> agent</h3><small><code>anthropic/claude-sonnet-5-5</code>. Instructions change when the thread is a child.</small></div>
-        <div class="box" style="--c:var(--violet)"><h3>Agent-thread tools</h3><small>start / message / interrupt / list / read agents, report to parent</small></div>
+        <div class="box" style="--c:var(--violet)"><h3>Agent-thread tools</h3><small>start / message / interrupt / wait for / list / read agents, report to parent</small></div>
         <div class="box" style="--c:var(--violet)"><h3>Memory</h3><small>Threads + observational memory (<code>anthropic/claude-haiku-5-5</code>) to compress long logs</small></div>
         <div class="box" style="--c:var(--violet)"><h3>Signals</h3><small>Wake idle threads or deliver into running ones</small></div>
+        <div class="box" style="--c:var(--violet)"><h3>App routes</h3><small><code>/app/…</code>: thread tree, tasks, close, delete, seen, files</small></div>
+        <div class="box" style="--c:var(--violet)"><h3>Run tracker</h3><small>Records each thread's run start and end, for <em>interrupted</em> and <em>to look at</em></small></div>
       </div></div>
     <div class="arrow">workspace resolved per run</div>
     <div class="layer"><div class="layer-label">Workspace</div>
@@ -103,7 +106,7 @@
       </div></div>
     <div class="layer"><div class="layer-label">Persistence</div>
       <div class="row">
-        <div class="box" style="--c:var(--muted)"><h3>LibSQL / Turso</h3><small>Threads, messages, thread metadata (<code>sandboxId</code>, <code>parentThreadId</code>, depth)</small></div>
+        <div class="box" style="--c:var(--muted)"><h3>LibSQL / Turso</h3><small>Threads, messages, and thread metadata: <code>sandboxId</code>, <code>parentThreadId</code>, depth, closed, <code>run</code>, <code>report</code>, <code>finishedAt</code>, <code>seenAt</code>. Direct provider models, so nothing is stored in the Mastra Gateway.</small></div>
         <div class="box" style="--c:var(--muted)"><h3>Observability</h3><small><code>MastraPlatformExporter</code> → Platform traces</small></div>
       </div></div>
   </div>
@@ -162,10 +165,11 @@
   <table>
     <tr><th>Tool</th><th>What it does</th><th>Under the hood</th></tr>
     <tr><td><code>start_agent</code></td><td>Start a child on a task in <code>"shared"</code>, <code>"new"</code>, or an existing <code>sb-…</code> sandbox. Optional <code>idempotencyKey</code> returns the already-started child.</td><td>Creates thread <code>agent-&lt;uuid&gt;</code> with metadata, then <code>sendMessage</code> with the child's request context (user + sandbox + parent).</td></tr>
-    <tr><td><code>message_agent</code></td><td>Send a message to one of the user's agent threads.</td><td><code>sendSignal</code> type <code>reactive</code>, tag <code>agent-message</code>; wakes the thread if idle.</td></tr>
+    <tr><td><code>message_agent</code></td><td>Send a message to one of the user's agent threads. From a parent, it also clears the child's last report.</td><td><code>sendSignal</code> type <code>reactive</code>, tag <code>agent-message</code>; wakes the thread if idle.</td></tr>
     <tr><td><code>interrupt_agent</code></td><td>Stop a child mid-task. Only the caller's own children.</td><td><code>abortThreadStream({ clearPendingSignals: true })</code></td></tr>
-    <tr><td><code>report_to_parent</code></td><td>Child sends <code>done</code> / <code>blocked</code> + summary.</td><td><code>sendSignal</code> type <code>notification</code>, tag <code>agent-report</code>; wakes the parent.</td></tr>
-    <tr><td><code>list_agents</code></td><td>The caller's children, with sandbox and running state.</td><td><code>listThreads</code> filtered by <code>parentThreadId</code> + <code>listActiveThreadRuns</code></td></tr>
+    <tr><td><code>report_to_parent</code></td><td>Child sends <code>done</code> / <code>blocked</code> + summary.</td><td>Saves the report in the child's metadata first, then <code>sendSignal</code> type <code>notification</code>, tag <code>agent-report</code>; wakes the parent.</td></tr>
+<tr><td><code>wait_agent</code></td><td>A child's status (running / interrupted / idle) and its saved report. Can wait up to 5 min. Recovers a report whose signal was lost.</td><td>Polls <code>agentStatus</code> and the child's <code>report</code> metadata every 2 s</td></tr>
+    <tr><td><code>list_agents</code></td><td>The caller's children, with sandbox, status (running / interrupted / idle) and whether each reported.</td><td><code>listThreads</code> filtered by <code>parentThreadId</code> + <code>agentStatus</code></td></tr>
     <tr><td><code>read_agent</code></td><td>Recent messages of one of the user's agent threads.</td><td><code>memory.recall</code></td></tr>
   </table>
 
@@ -174,7 +178,7 @@
   <table>
     <tr><th>Thing</th><th>Tied to</th><th>How many</th><th>Lifetime</th></tr>
     <tr><td>Modal volume <code>work-&lt;user-hash&gt;</code></td><td>A user</td><td>1 per user</td><td>Until deleted; created on first use</td></tr>
-    <tr><td>Folder in the volume</td><td>A sandbox id (<code>main</code>, <code>sb-…</code>)</td><td><code>main</code> + up to 5</td><td>Until deleted (no cleanup yet)</td></tr>
+    <tr><td>Folder in the volume</td><td>A sandbox id (<code>main</code>, <code>sb-…</code>)</td><td><code>main</code> + up to 5</td><td>Emptied when the app deletes the last task using it (<code>main</code> is kept)</td></tr>
     <tr><td>VM (<code>ModalSandbox</code>)</td><td>A sandbox in use</td><td>One per active sandbox</td><td>1 h max; next command starts a fresh one with the same folder</td></tr>
     <tr><td>Thread</td><td>A conversation / agent</td><td>Many</td><td>Points at a folder via <code>sandboxId</code> metadata</td></tr>
   </table>
@@ -193,8 +197,8 @@
     <li><span class="who">Tool</span> creates thread <code>agent-&lt;id&gt;</code> with metadata <code>{ sandboxId: "sb-&lt;id&gt;", parentThreadId, depth }</code>.</li>
     <li><span class="who">Tool</span> sends the task with <code>sendMessage(…, { ifIdle: { streamOptions: { requestContext } } })</code>; the context carries user, sandbox, parent.</li>
     <li><span class="who">Child run</span> resolves its workspace → ownership check → Modal VM starts with folder <code>sb-&lt;id&gt;/</code> mounted; <code>gh</code> installed.</li>
-    <li><span class="who">Child</span> works, then calls <code>report_to_parent</code> → <code>agent-report</code> notification signal.</li>
-    <li><span class="who">Parent</span> wakes (or receives it mid-run) and continues with the report.</li>
+    <li><span class="who">Child</span> works, then calls <code>report_to_parent</code>: the report is saved on its thread, then sent as an <code>agent-report</code> notification signal.</li>
+    <li><span class="who">Parent</span> wakes (or receives it mid-run) and continues with the report. If the signal never arrives, <code>wait_agent</code> reads the saved report.</li>
   </ol>
 
   <h2 id="users">Several users</h2>
@@ -213,22 +217,55 @@
       <li>Every sandbox gets the same <code>GH_TOKEN</code>. Use a read-only token, or per-user tokens before production.</li></ul></div>
   </div>
 
-  <h2 id="limits">Limits</h2>
+  <h2 id="app">Web app</h2>
+<p>A Vite + React 19 app in <code>web/</code> (Tailwind v4, shadcn/ui and AI Elements components, Streamdown for markdown). It talks to the same server: chat through <code>@mastra/react</code>'s <code>useChat</code> with thread signals, history through the memory route, everything else through the app routes below. In development, Vite proxies <code>/api</code> and <code>/app</code> to the server.</p>
+<div class="grid2">
+<div class="card"><h3>Screens</h3><ul>
+<li><strong>Agents:</strong> tasks with their agents nested; status dots; sandboxes and limits.</li>
+<li><strong>Conversation:</strong> messages, foldable commands, links to started agents, report cards, a message box that reaches the agent mid-task.</li>
+<li><strong>Files:</strong> the sandbox's <code>/mnt/work</code>, read-only.</li></ul></div>
+<div class="card"><h3>Actions</h3><ul>
+<li><strong>New task</strong> in <code>main</code>, a new sandbox, or an existing one.</li>
+<li><strong>Stop</strong> the current run; <strong>Close / Reopen</strong> a task; <strong>Delete</strong> a task, its agents and unused sandbox files.</li>
+<li><strong>Resume / Dismiss</strong> an interrupted agent.</li></ul></div>
+</div>
+<table style="margin-top:12px">
+<tr><th>Route</th><th>What it does</th></tr>
+<tr><td><code>GET /app/me</code></td><td>The signed-in user's resource id</td></tr>
+<tr><td><code>GET /app/threads</code></td><td>Every thread of the user, with parent, sandbox, depth, closed, status, report, <code>finishedAt</code>, <code>seenAt</code></td></tr>
+<tr><td><code>POST /app/tasks</code></td><td>Starts a top-level agent (same code as <code>start_agent</code>)</td></tr>
+<tr><td><code>POST /app/threads/:id/close</code></td><td>Close or reopen; closing stops every agent in the task</td></tr>
+<tr><td><code>POST /app/threads/:id/dismiss</code></td><td>Clears the interrupted state without resuming</td></tr>
+<tr><td><code>POST /app/threads/:id/seen</code></td><td>Records that the user opened the task</td></tr>
+<tr><td><code>DELETE /app/threads/:id</code></td><td>Deletes the thread and its subtree, then empties sandboxes nothing else uses</td></tr>
+<tr><td><code>GET /app/threads/:id/files</code>, <code>/file</code></td><td>Lists and reads the thread's sandbox files (up to 200 KB per file)</td></tr>
+</table>
+
+<h2 id="restarts">Restarts &amp; attention</h2>
+<p>Runs live in the server's memory. <code>src/mastra/runs.ts</code> polls the agent's active runs every 2 s and writes to each thread's metadata: <code>run: { boot, startedAt }</code> while one is going, and <code>finishedAt</code> plus <code>run: null</code> when it ends.</p>
+<div class="grid2">
+<div class="card"><h3>Interrupted <span class="tag ok">tested</span></h3><p>A <code>run</code> recorded by an earlier server process never finished, so the thread shows <em>interrupted</em>: an amber dot, a banner, and tool calls marked "Didn't finish". <strong>Resume</strong> sends a message asking the agent to check its files and continue; <strong>Dismiss</strong> clears the state. Nothing resumes on its own.</p></div>
+<div class="card"><h3>To look at <span class="tag ok">tested</span></h3><p>A task is flagged (blue dot, bold title, count in the header and tab) when it's top-level, not closed, nothing in it is running, and <code>finishedAt</code> is after <code>seenAt</code>. Opening any thread in the task marks it seen, including one that finishes while it's open.</p></div>
+</div>
+
+<h2 id="limits">Limits</h2>
   <table>
     <tr><th>Limit</th><th>Value</th><th>Where</th></tr>
     <tr><td>Nesting depth</td><td>2</td><td><code>MAX_DEPTH</code></td></tr>
     <tr><td>Children per thread</td><td>5</td><td><code>MAX_CHILDREN</code></td></tr>
     <tr><td>Extra sandboxes per user</td><td>5 (+ <code>main</code>)</td><td><code>MAX_SANDBOXES_PER_USER</code></td></tr>
     <tr><td>Running agents per user</td><td>10 (per server process)</td><td><code>MAX_RUNNING_PER_USER</code></td></tr>
-    <tr><td>VM lifetime</td><td>1 hour</td><td><code>timeoutMs</code> in <code>workspaces/sandboxes.ts</code></td></tr>
+    <tr><td>Steps per run</td><td>100</td><td><code>defaultOptions.maxSteps</code> in <code>agents/dev-agent.ts</code></td></tr>
+<tr><td>VM lifetime</td><td>1 hour</td><td><code>timeoutMs</code> in <code>workspaces/sandboxes.ts</code></td></tr>
   </table>
 
   <h2 id="gaps">Known gaps</h2>
   <div class="grid2">
-    <div class="card"><h3>Folders are never deleted <span class="tag gap">gap</span></h3><p>Deleting threads leaves the folder; once no thread names it, the user can't reach it and it stops counting toward the limit. Needs a <code>delete_agent</code> tool or a scheduled sweep.</p></div>
+    <div class="card"><h3>Deleting outside the app <span class="tag gap">gap</span></h3><p>Only the app's Delete empties a sandbox's folder. Threads deleted from Studio or the API leave it behind, unreachable and no longer counted toward the limit.</p></div>
     <div class="card"><h3>Idle VMs keep running <span class="tag gap">gap</span></h3><p>A VM runs for its full hour even when idle, and a command running when it ends is cut off.</p></div>
     <div class="card"><h3>One server process <span class="tag gap">gap</span></h3><p>Signals and the running-agent count are in-process. Multiple instances need shared PubSub (Redis / Valkey streams).</p></div>
-    <div class="card"><h3>Restarts &amp; Studio <span class="tag gap">gap</span></h3><p>A server restart stops running children. A message sent to a child from Studio doesn't carry its sandbox id, so it runs in <code>main</code>.</p></div>
+    <div class="card"><h3>Restarts <span class="tag gap">gap</span></h3><p>A restart stops every running agent; they're shown as interrupted but don't resume on their own. With observational memory, steps from the cut-off run can go unsaved (in one test, 3 of 6 commands), so a resumed agent may redo work. Runs shorter than the 2 s poll aren't recorded.</p></div>
+<div class="card"><h3>Studio <span class="tag gap">gap</span></h3><p>A message sent to a child from Studio doesn't carry its sandbox id, so it runs in <code>main</code>.</p></div>
   </div>
 
   <h2 id="files">Source files</h2>
@@ -237,11 +274,13 @@
     <tr><td><code>src/mastra/index.ts</code></td><td>Mastra instance: agent, LibSQL storage (Turso when configured), SimpleAuth + <code>mapUserToResourceId</code>, observability</td></tr>
     <tr><td><code>src/mastra/agents/dev-agent.ts</code></td><td>The <code>dev</code> agent; child-aware instructions; observational memory; <code>workspace: resolveWorkspace</code></td></tr>
     <tr><td><code>src/mastra/tools/agent-threads.ts</code></td><td>The seven agent-thread tools and limits</td></tr>
-    <tr><td><code>src/mastra/runs.ts</code></td><td>Records running threads so runs cut off by a restart show as interrupted</td></tr>
+    <tr><td><code>src/mastra/runs.ts</code></td><td>Run tracker: records each thread's run start and end, for <em>interrupted</em> and <em>to look at</em>; thread status</td></tr>
+<tr><td><code>src/mastra/routes/app.ts</code></td><td>The <code>/app/…</code> routes the web app uses</td></tr>
+<tr><td><code>web/</code></td><td>The web app (Vite + React)</td></tr>
     <tr><td><code>src/mastra/workspaces/sandboxes.ts</code></td><td>Modal volume/sandbox setup, ownership check, workspace cache, local fallback</td></tr>
   </table>
 
-  <footer>mastra-agent-threads · tested with a scripted model locally and on Modal; not yet with a real model or deployed.</footer>
+  <footer>mastra-agent-threads · tested with Claude Sonnet 5.5 on Modal and with a scripted model locally; not yet deployed.</footer>
 </main>
 </body>
 </html>
