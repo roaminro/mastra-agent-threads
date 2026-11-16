@@ -6,6 +6,7 @@ import { LocalFilesystem, LocalSandbox, Workspace } from '@mastra/core/workspace
 import type { SandboxStartHook } from '@mastra/core/workspace';
 import { ModalFilesystem, ModalSandbox } from '@mastra/modal';
 import { ModalClient } from 'modal';
+import { toolkits } from '../toolkits';
 import type { Volume } from 'modal';
 
 /** Request context key that names the sandbox a thread runs in. */
@@ -18,18 +19,23 @@ export const DEFAULT_SANDBOX_ID = 'main';
 const NEW_SANDBOX_ID = /^sb-[0-9a-f-]{36}$/;
 
 const onModal = Boolean(process.env.MODAL_TOKEN_ID && process.env.MODAL_TOKEN_SECRET);
-const env = process.env.GH_TOKEN ? { GH_TOKEN: process.env.GH_TOKEN } : undefined;
+
+// Environment variables the toolkits' CLIs need, skipping unset ones.
+const env = Object.fromEntries(
+  toolkits.flatMap(toolkit => Object.entries(toolkit.env ?? {})).filter(([, value]) => value !== undefined),
+) as Record<string, string>;
+const clis = toolkits.map(toolkit => toolkit.cli).join(', ');
 
 /** Where each sandbox's folder of the user's volume is mounted. */
 const FILES = '/mnt/work';
 
-// The machine is replaced whenever it times out, so gh is installed on each
-// new one. Only the files on the volume carry over.
-const installGh: SandboxStartHook = async ({ sandbox }) => {
-  const result = await sandbox.executeCommand!(
-    'command -v gh >/dev/null || (apt-get update -qq && apt-get install -y -qq gh)',
-  );
-  if (result.exitCode !== 0) throw new Error(`Installing gh failed: ${result.stderr}`);
+// The machine is replaced whenever it times out, so the toolkits' CLIs are
+// installed on each new one. Only the files on the volume carry over.
+const installToolkits: SandboxStartHook = async ({ sandbox }) => {
+  for (const toolkit of toolkits) {
+    const result = await sandbox.executeCommand!(toolkit.install);
+    if (result.exitCode !== 0) throw new Error(`Installing ${toolkit.cli} failed: ${result.stderr}`);
+  }
 };
 
 let modal: ModalClient | undefined;
@@ -84,10 +90,10 @@ async function createWorkspace(resourceId: string, sandboxId: string): Promise<W
     timeoutMs: 60 * 60_000,
     env,
     volumes: { [FILES]: volume.withMountOptions({ subPath: sandboxId }) },
-    onStart: installGh,
+    onStart: installToolkits,
     // The file tools resolve every path inside ${FILES}, so an absolute
     // "${FILES}/notes.txt" would land in ${FILES}${FILES}/notes.txt.
-    instructions: `Linux sandbox with git, Node.js, and gh. Your files are in ${FILES} and are kept between conversations; the machine itself is replaced when idle, so anything outside ${FILES} (global installs, running servers) doesn't last. Run commands with cwd "${FILES}". File tools (read, write, list) take paths relative to ${FILES}: write "notes.txt", not "${FILES}/notes.txt".`,
+    instructions: `Linux sandbox with git, Node.js, and ${clis}. Your files are in ${FILES} and are kept between conversations; the machine itself is replaced when idle, so anything outside ${FILES} (global installs, running servers) doesn't last. Run commands with cwd "${FILES}". File tools (read, write, list) take paths relative to ${FILES}: write "notes.txt", not "${FILES}/notes.txt".`,
   });
   return new Workspace({ ...workspace, sandbox, filesystem: new ModalFilesystem({ sandbox, basePath: FILES }) });
 }

@@ -22,7 +22,7 @@ You need Node.js 22+, pnpm, and an Anthropic API key. A Modal account is optiona
    | `ANTHROPIC_API_KEY` | Yes | Claude Sonnet 5.5 runs the agent; Claude Haiku 5.5 runs observational memory. |
    | `APP_USERS` | Yes | Sign-in tokens. The example gives you `sk-alice` and `sk-bob`. |
    | `MODAL_TOKEN_ID`, `MODAL_TOKEN_SECRET` | No | Run sandboxes on Modal (modal.com → Settings → API Tokens). Leave empty to run them as folders under `.sandboxes/` on your machine. |
-   | `GH_TOKEN` | No | Lets the `gh` CLI in sandboxes call GitHub. Public repos clone without it. |
+   | `GH_TOKEN` | No | Signs in the `gh` CLI in sandboxes. Without it, `gh` won't run; the agent reads public repos through GitHub's REST API instead, and `git clone` of public repos still works. |
 
 2. **Start the server.** It serves the agent, Studio, and the app's API on http://localhost:4111.
 
@@ -88,6 +88,46 @@ While it runs, select it and type "Stop at 5 instead". The agent reads the messa
 
 Start the counting task, then stop `pnpm mastra dev` with Ctrl+C and start it again. The agent turns amber and shows an *interrupted* banner. Click **Resume**, and it checks `count.txt` and carries on.
 
+## Add your own CLI and skill
+
+The sandbox's tools come from **toolkits**: a command-line tool installed in every sandbox, paired with a skill that teaches the agent to use it. The GitHub CLI is the one toolkit included, and it's the example to copy. A toolkit is two files:
+
+```
+src/mastra/toolkits/github.ts             the CLI: install command and environment variables
+src/mastra/public/skills/github/SKILL.md  the skill: when to use the CLI and how
+```
+
+To add one (say, the Stripe CLI):
+
+1. **Define the CLI** in `src/mastra/toolkits/stripe.ts`:
+
+   ```ts
+   import type { Toolkit } from '.';
+
+   export const stripe: Toolkit = {
+     cli: 'stripe',
+     // Runs on every new machine, so skip the work when it's already installed.
+     install: 'command -v stripe >/dev/null || (curl -sL https://github.com/stripe/stripe-cli/releases/download/v1.55.11/stripe_1.55.11_linux_x86_64.tar.gz | tar -xz -C /usr/local/bin stripe)',
+     env: { STRIPE_API_KEY: process.env.STRIPE_API_KEY },
+     skill: './skills/stripe',
+   };
+   ```
+
+2. **Register it** in `src/mastra/toolkits/index.ts`: `export const toolkits: Toolkit[] = [github, stripe];`
+
+3. **Write the skill** in `src/mastra/public/skills/stripe/SKILL.md`. The frontmatter needs a `name` matching the folder and a `description` saying *when* to use it; the agent sees only the description until it opens the skill. The body is the how-to: the commands that matter, what to pipe through `head` or `tail` so output stays small, and what the agent must not do. `skills/github/SKILL.md` shows the shape.
+
+4. **Add the variable** to `.env` (and `.env.example`), then restart `pnpm mastra dev`.
+
+Every sandbox installs every toolkit when its machine starts, and every agent, children included, gets every skill. Check it's loaded with `GET /api/agents/dev`, which lists the agent's skills, then give it a task that needs the tool and look for a `skill` call followed by the CLI in the conversation.
+
+Things to know:
+
+- **Installs rerun.** Modal machines don't keep their disk, only `/mnt/work`, so the install runs on each new machine. For a slow install, build an image with the CLI already in it and set `baseImage` in `src/mastra/workspaces/sandboxes.ts`.
+- **Secrets are shared.** A toolkit's `env` goes into every user's sandboxes, where any agent can read it. Use read-only or test-mode keys, or per-user credentials, before letting others in.
+- **Skills load from the server's working directory.** The `skill` path is relative to `src/mastra/public` under `pnpm mastra dev`, and `mastra build` copies that folder next to the built server. Start the built server from `.mastra/output`, or the skills are silently missing.
+- **Locally, nothing is installed.** Without a Modal token, sandboxes are folders on your machine and use the CLIs you have installed.
+
 ## How it works
 
 It doesn't use Mastra's built-in subagents. Every agent is a normal thread of the one `dev` agent, so they run independently and each can be opened on its own. Seven tools in `src/mastra/tools/agent-threads.ts` do the work:
@@ -105,7 +145,7 @@ It doesn't use Mastra's built-in subagents. Every agent is a normal thread of th
 ### Sandboxes and files
 
 - **Files.** Each user has one Modal volume (`work-<user-hash>`), created on first use. Every sandbox mounts only its own folder of it at `/mnt/work`, through `volume.withMountOptions({ subPath: sandboxId })`. `ModalFilesystem` points the agent's file tools at the same folder, so file tools and commands see the same files with no copying, and storage grows by one folder per sandbox rather than per thread.
-- **Machines.** A sandbox's VM (`ModalSandbox`, `node:22-bookworm` with `gh` installed on start) is disposable. It stops after an hour, and the next command starts a new one with the same folder mounted. Agents in a shared sandbox share the VM and the folder; agents in different sandboxes hand work over through git.
+- **Machines.** A sandbox's VM (`ModalSandbox`, `node:22-bookworm` with each toolkit's CLI installed on start) is disposable. It stops after an hour, and the next command starts a new one with the same folder mounted. Agents in a shared sandbox share the VM and the folder; agents in different sandboxes hand work over through git.
 - **Locally.** Without `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET`, each sandbox is a folder under `.sandboxes/<user>/` on your machine.
 
 ### Several users
@@ -129,6 +169,7 @@ Agent runs live in the server's memory, so a crash or restart ends them and noth
 | `src/mastra/agents/dev-agent.ts` | The `dev` agent and its instructions |
 | `src/mastra/tools/agent-threads.ts` | The seven agent-thread tools and the limits |
 | `src/mastra/workspaces/sandboxes.ts` | Modal sandboxes and volumes, the local fallback, and ownership checks |
+| `src/mastra/toolkits/` | The CLIs installed in every sandbox, each paired with a skill in `src/mastra/public/skills/` |
 | `src/mastra/routes/app.ts` | The web app's routes |
 | `src/mastra/runs.ts` | Tracks running threads so interrupted runs can be shown |
 | `web/` | The web app: Vite, React 19, Tailwind v4, shadcn/ui with AI Elements, and `@mastra/react`'s `useChat` with thread signals |
@@ -150,7 +191,7 @@ In the Platform environment, set `ANTHROPIC_API_KEY`, `APP_USERS` (or replace `S
 
 ## Known gaps
 
-- **One GitHub token for everyone.** `GH_TOKEN` goes into every user's sandboxes, where any user's agent can read it. Keep it read-only, or give each user their own credential (for example through Connect) before production.
+- **One set of CLI credentials for everyone.** `GH_TOKEN` (and any toolkit's `env`) goes into every user's sandboxes, where any user's agent can read it. Keep it read-only, or give each user their own credential (for example through Connect) before production.
 - **Several server instances.** Signals reach a running thread only within one server process, and the running-agents limit counts only that process. If Platform runs more than one instance, configure a shared PubSub backend (Redis or Valkey streams).
 - **Deleting only from the app.** The app's Delete removes unused sandboxes' files (an empty folder entry stays on the volume). Threads deleted any other way, such as from Studio, still leave their folder behind.
 - **Use direct provider models, not `mastra/...`.** With a Mastra Gateway model, the Gateway stores the conversation and observational memory skips local storage, so threads end up outside this app's database. The Gateway's copy also showed tool calls without results and calls that never ran.

@@ -101,7 +101,7 @@
     <div class="arrow">Modal API</div>
     <div class="layer"><div class="layer-label">Compute &amp; files</div>
       <div class="row">
-        <div class="box" style="--c:var(--green)"><h3>Modal sandbox (VM)</h3><small><code>node:22-bookworm</code>, <code>gh</code> on start, 1 h limit, disposable</small></div>
+        <div class="box" style="--c:var(--green)"><h3>Modal sandbox (VM)</h3><small><code>node:22-bookworm</code>, toolkit CLIs installed on start, 1 h limit, disposable</small></div>
         <div class="box" style="--c:var(--green)"><h3>Modal volume per user</h3><small><code>work-&lt;user-hash&gt;</code>, folder per sandbox mounted at <code>/mnt/work</code></small></div>
       </div></div>
     <div class="layer"><div class="layer-label">Persistence</div>
@@ -196,7 +196,7 @@
     <li><span class="who">Tool</span> checks depth ≤ 2, children ≤ 5 per thread, running ≤ 10 per user, extra sandboxes ≤ 5 per user; derives ids from the key if given.</li>
     <li><span class="who">Tool</span> creates thread <code>agent-&lt;id&gt;</code> with metadata <code>{ sandboxId: "sb-&lt;id&gt;", parentThreadId, depth }</code>.</li>
     <li><span class="who">Tool</span> sends the task with <code>sendMessage(…, { ifIdle: { streamOptions: { requestContext } } })</code>; the context carries user, sandbox, parent.</li>
-    <li><span class="who">Child run</span> resolves its workspace → ownership check → Modal VM starts with folder <code>sb-&lt;id&gt;/</code> mounted; <code>gh</code> installed.</li>
+    <li><span class="who">Child run</span> resolves its workspace → ownership check → Modal VM starts with folder <code>sb-&lt;id&gt;/</code> mounted; toolkit CLIs (<code>gh</code>) installed.</li>
     <li><span class="who">Child</span> works, then calls <code>report_to_parent</code>: the report is saved on its thread, then sent as an <code>agent-report</code> notification signal.</li>
     <li><span class="who">Parent</span> wakes (or receives it mid-run) and continues with the report. If the signal never arrives, <code>wait_agent</code> reads the saved report.</li>
   </ol>
@@ -278,6 +278,7 @@
 <tr><td><code>src/mastra/routes/app.ts</code></td><td>The <code>/app/…</code> routes the web app uses</td></tr>
 <tr><td><code>web/</code></td><td>The web app (Vite + React)</td></tr>
     <tr><td><code>src/mastra/workspaces/sandboxes.ts</code></td><td>Modal volume/sandbox setup, ownership check, workspace cache, local fallback</td></tr>
+    <tr><td><code>src/mastra/toolkits/</code></td><td>CLIs installed in every sandbox (<code>gh</code> included), each paired with a skill in <code>public/skills/</code> that every agent gets</td></tr>
   </table>
 
   <footer>mastra-agent-threads · tested with Claude Sonnet 5.5 on Modal and with a scripted model locally; not yet deployed.</footer>

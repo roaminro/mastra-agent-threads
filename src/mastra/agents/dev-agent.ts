@@ -2,8 +2,9 @@ import { Agent } from '@mastra/core/agent';
 import { Memory } from '@mastra/memory';
 import { resolveWorkspace } from '../workspaces/sandboxes';
 import { PARENT_THREAD_ID_KEY, agentThreadTools } from '../tools/agent-threads';
+import { toolkits } from '../toolkits';
 
-const instructions = `You are a software engineer working in a cloud sandbox. The sandbox has git, Node.js, and the GitHub CLI (gh). Your files are kept between conversations.
+const instructions = `You are a software engineer working in a cloud sandbox. The sandbox has git and Node.js, plus the command-line tools your skills describe. Your files are kept between conversations.
 
 You can split work across other agents:
 - start_agent starts an agent on one task and returns right away. Give it complete instructions; it doesn't see this conversation. Pass a short idempotencyKey naming the task, so retrying doesn't start a second agent.
@@ -34,6 +35,8 @@ Another agent (thread ${parent}) started you. When your task is done, or you're 
   // Each thread runs in one of its user's sandboxes: the one named in its
   // request context, or the user's default sandbox.
   workspace: resolveWorkspace,
+  // One skill per toolkit, read from src/mastra/public/skills (copied next to the server on build).
+  skills: toolkits.map(toolkit => toolkit.skill),
   // The default of 5 steps ends a coding task after 5 commands, before the agent can reply.
   defaultOptions: { maxSteps: 100 },
 });
