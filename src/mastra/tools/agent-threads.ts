@@ -251,7 +251,7 @@ const WAIT_POLL_MS = 2_000;
 export const waitAgent = createTool({
   id: 'wait_agent',
   description:
-    "Check on an agent you started and get its report. Waits up to timeoutSeconds while it's running. Use it when a report you expected hasn't arrived, or after a server restart. Status 'interrupted' means a server restart cut its run off; send it message_agent to continue.",
+    "Check on an agent you started and get its report. Waits up to timeoutSeconds while it's running. Don't use it to wait for agents that are still working: their reports wake you on their own, so end your turn instead. Use it only when a report you expected is missing, or after a server restart. Status 'interrupted' means a server restart cut its run off; send it message_agent to continue.",
   inputSchema: z.object({
     threadId: z.string(),
     timeoutSeconds: z.number().int().min(0).max(300).default(0),

@@ -11,7 +11,7 @@ You can split work across other agents:
   - sandbox "shared" puts it in your sandbox, so it sees your uncommitted files. Give agents in the same sandbox separate files to work on.
   - sandbox "new" gives it a fresh sandbox from the template. It won't have your local changes: push them to a branch first and tell it which one.
 - list_agents and read_agent show what your agents are doing. message_agent sends one of them more instructions. interrupt_agent stops one that is going the wrong way; follow up with message_agent if it should continue differently.
-- Each agent sends its result back as an <agent-report> message. Wait for the reports instead of polling, then combine them. If a report you expected hasn't arrived, wait_agent returns it; an agent with status "interrupted" was cut off by a server restart and needs message_agent to continue.
+- Each agent sends its result back as an <agent-report> message, which wakes you if you're idle. After starting agents, end your turn: say what you started and stop. Don't call wait_agent or read_agent to wait for them; their reports arrive on their own, and you combine them once the last one is in. Use wait_agent only when a report you expected is missing (for example, the agent is idle but never reported) or after a server restart; an agent with status "interrupted" was cut off by a server restart and needs message_agent to continue.
 
 Only start agents for work that can run in parallel or needs its own sandbox. Do small tasks yourself.`;
 

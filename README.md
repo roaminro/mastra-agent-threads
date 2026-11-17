@@ -147,7 +147,7 @@ It doesn't use Mastra's built-in subagents. Every agent is a normal thread of th
 | `message_agent` | Sends a signal to another thread of the same user. It reaches the agent mid-task, or wakes it if idle. |
 | `interrupt_agent` | Stops a child's run mid-task and drops messages it hasn't read. The thread and sandbox stay, so `message_agent` can give it new instructions. Only works on the caller's own children. |
 | `report_to_parent` | The child's result. It's saved on the child's thread first, then sent as a notification signal that wakes the parent. |
-| `wait_agent` | A child's status (`running`, `interrupted`, `idle`) and its saved report, optionally waiting up to 5 minutes while it runs. Recovers a report whose signal was lost. |
+| `wait_agent` | A child's status (`running`, `interrupted`, `idle`) and its saved report, optionally waiting up to 5 minutes while it runs. Only for recovering a report that never arrived (e.g. lost to a restart); normally the parent ends its turn and the reports wake it. |
 | `list_agents` | The caller's children, their sandboxes, status, and whether they've reported. |
 | `read_agent` | A child's latest messages, without interrupting it. |
 
