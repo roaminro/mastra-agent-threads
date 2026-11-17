@@ -49,17 +49,17 @@ You need Node.js 22+, pnpm, and an Anthropic API key. A Modal account is optiona
 
 ## Using the app
 
-The screen has three columns.
+The screen has a task list on the left and the selected agent's conversation on the right.
 
-- **Agents (left).** Your tasks, with the agents each one started nested underneath. A green pulsing dot means the agent is working, gray means idle, and amber means a server restart interrupted it. A blue dot and a bold title mean the task finished since you last opened it: its agent replied and none of its agents are still working. The header and the browser tab show how many tasks are waiting for you; opening one clears it. The badge is the agent's sandbox. Below the tree are your sandboxes, how many agents use each, and how close you are to the limits.
-- **Conversation (middle).** The selected agent's messages. Each command it ran is a line you can expand to see the output. When it starts another agent, a dashed line links to that agent; when a child finishes, its report appears as a green card (yellow if it got blocked). Type in the box at the bottom to message the agent: while it works, the message reaches it mid-task; otherwise it wakes it up.
-- **Files (right).** The agent's sandbox folder (`/mnt/work`), read-only. Click folders to open them and files to view them.
+- **Tasks (left).** Your tasks, with the agents each one started nested underneath. A green pulsing dot means the agent is working, gray means idle, and amber means a server restart interrupted it. A blue dot and a bold title mean the task finished since you last opened it: its agent replied and none of its agents are still working. The browser tab shows how many tasks are waiting for you; opening one clears it.
+- **Conversation.** The selected agent's messages. Each command it ran is a line you can expand to see the output. When it starts another agent, a "Started …" line links to that agent; when a child finishes, its report appears in a box (amber "is blocked" if it got stuck). Type in the box at the bottom to message the agent: while it works, the message reaches it mid-task; otherwise it wakes it up.
+- **Files.** The button in the conversation header opens the agent's sandbox folder (`/mnt/work`), read-only. Click folders to open them and files to view them.
 
 Actions:
 
-- **New task** (top right) starts a top-level agent. Give it a title, instructions, and a sandbox: `main` (your default sandbox and its files), a new empty sandbox, or one of your existing sandboxes.
+- **New task** (top left) starts a top-level agent. Give it a title, instructions, and a sandbox: `main` (your default sandbox and its files), a new empty sandbox, or one of your existing sandboxes.
 - **Stop** ends the agent's current run. It keeps its conversation and files; message it to continue.
-- **Close task** stops every agent in the task and moves it to *Closed*. **Reopen** brings it back.
+- **Close** stops every agent in the task and moves it to *Closed*. **Reopen** brings it back.
 - **Delete** removes the task, every agent under it, and the files of any sandbox nothing else uses. You see what will be deleted before confirming. `main` is never deleted.
 - **Resume** and **Dismiss** appear on an agent that a server restart interrupted. Resume asks it to check its files and continue; Dismiss clears the warning.
 

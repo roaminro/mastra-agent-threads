@@ -1,36 +1,21 @@
 import { useState } from 'react';
 import { FileIcon, FolderIcon } from 'lucide-react';
-import { short } from '@/components/delete-thread-dialog';
 import { CodeBlock, CodeBlockContent, CodeBlockHeader, CodeBlockTitle } from '@/components/ui/code-block';
 import { Spinner } from '@/components/ui/spinner';
 import { type AgentThread, useFile, useFiles } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
-/** The thread's sandbox: who shares it, and its files (read-only). */
-export function FilesPanel({ thread, threads }: { thread: AgentThread; threads: AgentThread[] }) {
+/** The thread's sandbox files (read-only). */
+export function FilesPanel({ thread }: { thread: AgentThread }) {
   const [dir, setDir] = useState('');
   const [file, setFile] = useState<string | null>(null);
   const files = useFiles(thread.id, dir);
   const content = useFile(thread.id, file);
-  const sharing = threads.filter(t => t.sandboxId === thread.sandboxId);
   const parts = dir ? dir.split('/') : [];
 
   return (
-    <aside className="flex min-h-0 flex-col gap-4 overflow-y-auto border-l bg-rail p-4">
-      <dl className="grid grid-cols-[5.5rem_1fr] gap-y-1 font-mono text-[11px]">
-        <dt className="text-faint">sandbox</dt>
-        <dd className="text-muted-foreground">{short(thread.sandboxId)}</dd>
-        <dt className="text-faint">used by</dt>
-        <dd className="text-muted-foreground">
-          {sharing.length} agent{sharing.length === 1 ? '' : 's'}
-        </dd>
-        <dt className="text-faint">state</dt>
-        <dd className={sharing.some(t => t.running) ? 'text-signal' : 'text-muted-foreground'}>
-          {sharing.some(t => t.running) ? 'working' : 'idle'}
-        </dd>
-      </dl>
-
-      <nav className="flex flex-wrap items-center border-b pb-2 font-mono text-xs text-faint">
+    <aside className="flex min-h-0 flex-col gap-3 overflow-y-auto border-l p-4">
+      <nav className="flex h-4 flex-wrap items-center font-mono text-xs text-faint">
         <button className="hover:text-foreground" onClick={() => setDir('')}>
           /mnt/work
         </button>
@@ -45,13 +30,13 @@ export function FilesPanel({ thread, threads }: { thread: AgentThread; threads: 
       </nav>
 
       {files.isPending ? (
-        <p className="flex items-center gap-2 font-mono text-xs text-faint">
-          <Spinner className="size-3" /> starting the sandbox
+        <p className="flex items-center gap-2 text-sm text-faint">
+          <Spinner className="size-3.5" /> Starting the sandbox…
         </p>
       ) : files.isError ? (
         <p className="text-sm text-destructive">{files.error.message}</p>
       ) : files.data.length === 0 ? (
-        <p className="font-mono text-xs text-faint">empty</p>
+        <p className="text-sm text-faint">No files yet.</p>
       ) : (
         <ul className="-mx-2 font-mono text-xs">
           {files.data.map(entry => {
@@ -61,7 +46,7 @@ export function FilesPanel({ thread, threads }: { thread: AgentThread; threads: 
                 key={entry.name}
                 onClick={() => (entry.type === 'directory' ? setDir(path) : setFile(path))}
                 className={cn(
-                  'flex h-6 cursor-pointer items-center gap-2 rounded px-2 text-muted-foreground hover:bg-muted/60 hover:text-foreground',
+                  'flex h-7 cursor-pointer items-center gap-2 rounded-md px-2 text-muted-foreground hover:bg-muted/60 hover:text-foreground',
                   path === file && 'bg-muted text-foreground',
                 )}
               >

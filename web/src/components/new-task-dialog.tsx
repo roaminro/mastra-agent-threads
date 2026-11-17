@@ -65,9 +65,9 @@ export function NewTaskDialog({
             <DialogTitle>New task</DialogTitle>
             <DialogDescription>An agent starts on it right away. It can split the work across other agents.</DialogDescription>
           </DialogHeader>
-          <Label htmlFor="title" className="mt-1 font-mono text-[11px] font-normal text-faint">title</Label>
+          <Label htmlFor="title" className="mt-1 text-xs font-normal text-muted-foreground">Title</Label>
           <Input id="title" value={title} onChange={e => setTitle(e.target.value)} maxLength={80} required />
-          <Label htmlFor="task" className="mt-1 font-mono text-[11px] font-normal text-faint">instructions</Label>
+          <Label htmlFor="task" className="mt-1 text-xs font-normal text-muted-foreground">Instructions</Label>
           <Textarea
             id="task"
             value={task}
@@ -76,7 +76,7 @@ export function NewTaskDialog({
             required
             placeholder="Clone sindresorhus/slugify into /mnt/work/slugify and run its tests."
           />
-          <Label className="mt-1 font-mono text-[11px] font-normal text-faint">sandbox</Label>
+          <Label className="mt-1 text-xs font-normal text-muted-foreground">Sandbox</Label>
           <div className="grid grid-cols-2 gap-2">
             {options.map(option => (
               <button
@@ -91,11 +91,11 @@ export function NewTaskDialog({
                 <span
                   className={cn(
                     'mt-1 size-3 shrink-0 rounded-full border border-faint',
-                    sandbox === option.value && 'border-[3px] border-signal',
+                    sandbox === option.value && 'border-[3px] border-foreground',
                   )}
                 />
                 <span>
-                  <span className="block font-mono text-xs">{option.label}</span>
+                  <span className="block text-sm">{option.label}</span>
                   <span className="block text-xs text-muted-foreground">{option.hint}</span>
                 </span>
               </button>

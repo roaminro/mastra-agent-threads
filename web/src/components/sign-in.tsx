@@ -27,8 +27,8 @@ export function SignIn({ onSignIn }: { onSignIn: (token: string, resourceId: str
       >
         <Logo />
         <p className="mb-3 text-sm text-muted-foreground">Agents that start agents, each with its own sandbox.</p>
-        <Label htmlFor="token" className="font-mono text-xs font-normal text-faint">
-          access token
+        <Label htmlFor="token" className="text-xs font-normal text-muted-foreground">
+          Access token
         </Label>
         <Input id="token" type="password" className="font-mono" value={token} onChange={e => setValue(e.target.value)} autoFocus />
         {error && <p className="text-sm text-destructive">{error}</p>}

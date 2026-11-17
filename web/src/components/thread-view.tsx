@@ -3,9 +3,8 @@ import { RequestContext } from '@mastra/core/request-context';
 import { type MastraDBMessage, useMastraClient } from '@mastra/react';
 import { useQuery } from '@tanstack/react-query';
 import { useChat } from '@mastra/react/chat';
-import { ArrowUpIcon, PlayIcon, SquareIcon, TriangleAlertIcon } from 'lucide-react';
+import { ArrowLeftIcon, ArrowUpIcon, FolderIcon, PlayIcon, SquareIcon, TriangleAlertIcon } from 'lucide-react';
 import { toast } from 'sonner';
-import { StatusDot } from '@/components/agent-tree';
 import { ChatMessage } from '@/components/chat-message';
 import { DeleteThreadDialog, short } from '@/components/delete-thread-dialog';
 import { Button } from '@/components/ui/button';
@@ -27,6 +26,8 @@ type ThreadViewProps = {
   threads: AgentThread[];
   resourceId: string;
   onSelect: (id: string | null) => void;
+  filesOpen: boolean;
+  onToggleFiles: () => void;
 };
 
 export function ThreadView(props: ThreadViewProps) {
@@ -64,6 +65,8 @@ function ThreadChat({
   threads,
   resourceId,
   onSelect,
+  filesOpen,
+  onToggleFiles,
   history,
 }: ThreadViewProps & { history: MastraDBMessage[] }) {
   const client = useMastraClient();
@@ -140,35 +143,35 @@ function ThreadChat({
 
   return (
     <section className="flex min-h-0 flex-col">
-      <div className="flex min-h-14 items-center gap-3 border-b px-5 py-2">
-        <div className="min-w-0">
-          {parent && (
-            <button className="block max-w-full truncate font-mono text-[11px] text-faint hover:text-foreground" onClick={() => onSelect(parent.id)}>
-              ↖ {parent.title}
-            </button>
-          )}
-          <div className="flex items-center gap-2">
-            <StatusDot thread={{ ...thread, running }} />
-            <h2 className="truncate font-medium">{thread.title}</h2>
-          </div>
-          <div className="flex flex-wrap items-center gap-x-3 font-mono text-[11px] text-faint">
-            <span className={cn(running && 'text-signal', interrupted && 'text-amber-400')}>
-              {running ? 'running' : interrupted ? 'interrupted' : 'idle'}
-            </span>
-            <span>sandbox {short(thread.sandboxId)}</span>
-            <span>depth {thread.depth}</span>
-            {root.closed && <span>closed</span>}
-          </div>
-        </div>
+      <div className="flex h-12 items-center gap-2 border-b px-4">
+        {parent && (
+          <Button size="icon-sm" variant="ghost" className="text-faint" title={`Back to ${parent.title}`} onClick={() => onSelect(parent.id)}>
+            <ArrowLeftIcon />
+          </Button>
+        )}
+        <h2 className="min-w-0 truncate text-sm font-medium">{thread.title}</h2>
+        <span className={cn('shrink-0 text-xs text-faint', running && 'text-signal', interrupted && 'text-amber-400')}>
+          {running ? 'Working' : interrupted ? 'Interrupted' : root.closed ? 'Closed' : ''}
+        </span>
         <div className="flex-1" />
         {running && (
-          <Button size="sm" variant="destructive" onClick={stop}>
+          <Button size="sm" variant="outline" onClick={stop}>
             <SquareIcon /> Stop
           </Button>
         )}
         <Button
           size="sm"
-          variant="outline"
+          variant={filesOpen ? 'secondary' : 'ghost'}
+          className={cn(!filesOpen && 'text-muted-foreground')}
+          onClick={onToggleFiles}
+          title={`Files in sandbox ${short(thread.sandboxId)}`}
+        >
+          <FolderIcon /> Files
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="text-muted-foreground"
           disabled={closeTask.isPending}
           onClick={() =>
             closeTask.mutate(
@@ -178,15 +181,15 @@ function ThreadChat({
           }
           title={root.closed ? 'Reopen the task' : 'Stop every agent in this task and move it to Closed'}
         >
-          {root.closed ? 'Reopen' : 'Close task'}
+          {root.closed ? 'Reopen' : 'Close'}
         </Button>
-        <Button size="sm" variant="ghost" className="text-faint hover:text-destructive" onClick={() => setDeleting(true)}>
+        <Button size="sm" variant="ghost" className="text-muted-foreground hover:text-destructive" onClick={() => setDeleting(true)}>
           Delete
         </Button>
       </div>
 
       {interrupted && (
-        <div className="flex items-center gap-3 border-b border-l-2 border-l-amber-400 bg-amber-400/5 px-5 py-2.5 text-sm">
+        <div className="flex items-center gap-3 border-b bg-amber-400/5 px-4 py-2.5 text-sm">
           <TriangleAlertIcon className="size-4 shrink-0 text-amber-400" />
           <p className="min-w-0 flex-1 text-muted-foreground">
             A server restart interrupted this agent
@@ -210,7 +213,7 @@ function ThreadChat({
       <MessageScrollerProvider autoScroll defaultScrollPosition="end">
         <MessageScroller className="min-h-0 flex-1">
           <MessageScrollerViewport>
-            <MessageScrollerContent className="mx-auto max-w-[46rem] gap-5 px-6 py-6">
+            <MessageScrollerContent className="mx-auto max-w-[44rem] gap-6 px-6 py-8">
               {messages.map(message => (
                 <MessageScrollerItem key={message.id} messageId={message.id} scrollAnchor={incoming(message)}>
                   <ChatMessage
@@ -224,8 +227,8 @@ function ThreadChat({
                 </MessageScrollerItem>
               ))}
               {running && (
-                <p className="flex items-center gap-2 font-mono text-xs text-signal">
-                  <Spinner className="size-3" /> working
+                <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Spinner className="size-3.5" /> Working…
                 </p>
               )}
             </MessageScrollerContent>
@@ -235,13 +238,13 @@ function ThreadChat({
       </MessageScrollerProvider>
 
       <form
-        className="mx-auto w-full max-w-[46rem] px-6 pb-4"
+        className="mx-auto w-full max-w-[44rem] px-6 pb-5"
         onSubmit={event => {
           event.preventDefault();
           send();
         }}
       >
-        <div className="rounded-md border bg-raised focus-within:border-muted-foreground/50">
+        <div className="flex items-end gap-2 rounded-lg border bg-raised p-1.5 focus-within:border-muted-foreground/50">
           <Textarea
             value={draft}
             onChange={e => setDraft(e.target.value)}
@@ -252,15 +255,12 @@ function ThreadChat({
               }
             }}
             placeholder={running ? 'Message this agent. It reads it between steps.' : 'Message this agent'}
-            className="min-h-11 resize-none border-0 bg-transparent shadow-none focus-visible:ring-0 dark:bg-transparent"
+            className="max-h-48 min-h-9 resize-none border-0 bg-transparent px-2 py-1.5 shadow-none focus-visible:ring-0 dark:bg-transparent"
             rows={1}
           />
-          <div className="flex items-center justify-between px-3 pb-2 font-mono text-[11px] text-faint">
-            <span>↵ send · ⇧↵ new line</span>
-            <Button type="submit" size="icon-xs" disabled={!draft.trim()}>
-              <ArrowUpIcon />
-            </Button>
-          </div>
+          <Button type="submit" size="icon-sm" disabled={!draft.trim()} title="Send (Enter)">
+            <ArrowUpIcon />
+          </Button>
         </div>
       </form>
 

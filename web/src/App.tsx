@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { MastraReactProvider } from '@mastra/react';
 import { LogOutIcon, PlusIcon } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { AgentTree } from '@/components/agent-tree';
 import { Logo } from '@/components/logo';
 import { FilesPanel } from '@/components/files-panel';
@@ -61,6 +62,7 @@ function Workspace({ resourceId, onSignOut }: { resourceId: string; onSignOut: (
   const { data: threads = [] } = useThreads();
   const [selected, select] = useSelectedThread();
   const [newTaskOpen, setNewTaskOpen] = useState(false);
+  const [filesOpen, setFilesOpen] = useFilesOpen();
   const thread = threads.find(t => t.id === selected);
   const flagged = threads.filter(t => needsAttention(t, threads)).length;
   useMarkOpenTaskSeen(thread, threads);
@@ -71,45 +73,57 @@ function Workspace({ resourceId, onSignOut }: { resourceId: string; onSignOut: (
 
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
-      <header className="flex h-11 items-center gap-3 border-b bg-rail px-3">
-        <Logo />
-        {flagged > 0 && (
-          <span className="flex items-center gap-1.5 font-mono text-xs text-foreground">
-            <span className="size-1.5 rounded-full bg-foreground" />
-            {flagged} to look at
-          </span>
-        )}
-        <div className="flex-1" />
-        <Button size="sm" onClick={() => setNewTaskOpen(true)}>
-          <PlusIcon /> New task
-        </Button>
-        <span className="font-mono text-xs text-faint">{resourceId}</span>
-        <Button size="icon-sm" variant="ghost" onClick={onSignOut} title="Sign out" className="text-faint">
-          <LogOutIcon />
-        </Button>
-      </header>
-
-      <main className="grid min-h-0 flex-1 grid-cols-[264px_1fr_340px]">
-        <AgentTree threads={threads} selected={selected} onSelect={select} />
+      <main className={cn('grid min-h-0 flex-1', thread && filesOpen ? 'grid-cols-[240px_1fr_320px]' : 'grid-cols-[240px_1fr]')}>
+        <aside className="flex min-h-0 flex-col border-r">
+          <div className="flex h-12 items-center justify-between px-4">
+            <Logo />
+            <Button size="icon-sm" variant="ghost" onClick={onSignOut} title={`Sign out ${resourceId}`} className="text-faint">
+              <LogOutIcon />
+            </Button>
+          </div>
+          <div className="px-3 pb-2">
+            <Button size="sm" variant="outline" className="w-full justify-start" onClick={() => setNewTaskOpen(true)}>
+              <PlusIcon /> New task
+            </Button>
+          </div>
+          <AgentTree threads={threads} selected={selected} onSelect={select} />
+        </aside>
         {thread ? (
-          <ThreadView key={thread.id} thread={thread} threads={threads} resourceId={resourceId} onSelect={select} />
+          <ThreadView
+            key={thread.id}
+            thread={thread}
+            threads={threads}
+            resourceId={resourceId}
+            onSelect={select}
+            filesOpen={filesOpen}
+            onToggleFiles={() => setFilesOpen(!filesOpen)}
+          />
         ) : (
-          <div className="flex flex-col items-start justify-center gap-3 px-12">
-            <p className="font-mono text-xs text-faint">no agent selected</p>
-            <p className="max-w-sm text-muted-foreground">
-              Pick an agent on the left, or give a new one a task. It can split the work across other agents.
+          <div className="flex flex-col items-center justify-center gap-4 text-center">
+            <p className="max-w-xs text-sm text-muted-foreground">
+              Give an agent a task. It can split the work across other agents.
             </p>
-            <Button size="sm" variant="outline" onClick={() => setNewTaskOpen(true)}>
+            <Button size="sm" onClick={() => setNewTaskOpen(true)}>
               <PlusIcon /> New task
             </Button>
           </div>
         )}
-        {thread ? <FilesPanel key={`files-${thread.id}`} thread={thread} threads={threads} /> : <aside className="border-l bg-rail" />}
+        {thread && filesOpen && <FilesPanel key={`files-${thread.id}`} thread={thread} />}
       </main>
 
       <NewTaskDialog threads={threads} open={newTaskOpen} onOpenChange={setNewTaskOpen} onStarted={select} />
     </div>
   );
+}
+
+/** The files panel stays open or closed across threads and reloads. */
+function useFilesOpen() {
+  const [open, setOpen] = useState(() => localStorage.getItem('agent-threads-files') === 'open');
+  const set = (value: boolean) => {
+    localStorage.setItem('agent-threads-files', value ? 'open' : 'closed');
+    setOpen(value);
+  };
+  return [open, set] as const;
 }
 
 /**

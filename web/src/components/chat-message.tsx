@@ -75,7 +75,7 @@ export function ChatMessage({ message, thread, threads, running, isFirstUserMess
   }
 
   return (
-    <div className="flex flex-col gap-2 text-sm">
+    <div className="flex flex-col gap-3 text-sm">
       {message.content.parts.map((part, index) => {
         const signal = liveSignal(part);
         if (signal) return renderSignal(signal, index);
@@ -96,13 +96,12 @@ export function ChatMessage({ message, thread, threads, running, isFirstUserMess
 function ReportCard({ signal, title, onSelect }: { signal: Signal; title: string; onSelect: (id: string) => void }) {
   const blocked = signal.status === 'blocked';
   return (
-    <div className={cn('border-l-2 py-0.5 pl-4 text-sm', blocked ? 'border-amber-400' : 'border-signal')}>
-      <div className="mb-1.5 flex items-center gap-2 font-mono text-[11px] text-faint">
-        <span className={blocked ? 'text-amber-400' : 'text-signal'}>{blocked ? 'blocked' : 'done'}</span>
-        <span>report from</span>
+    <div className="rounded-lg border px-4 py-3 text-sm">
+      <div className="mb-1.5 text-xs text-faint">
         <button className="text-muted-foreground hover:text-foreground hover:underline" onClick={() => signal.from && onSelect(signal.from)}>
           {title}
-        </button>
+        </button>{' '}
+        {blocked ? <span className="text-amber-400">is blocked</span> : 'finished'}
       </div>
       <Markdown>{signal.contents}</Markdown>
     </div>
@@ -121,17 +120,15 @@ function Incoming({
   onSelect: (id: string) => void;
 }) {
   return (
-    <div className="rounded-md border bg-raised px-4 py-3 text-sm">
-      <div className="mb-1 font-mono text-[11px] text-faint">
-        {from ? (
-          <button className="hover:text-foreground hover:underline" onClick={() => onSelect(from)}>
-            from {title}
-          </button>
-        ) : (
-          'you'
-        )}
+    <div className="ml-auto flex max-w-[85%] flex-col items-end gap-1">
+      {from && (
+        <button className="text-xs text-faint hover:text-foreground hover:underline" onClick={() => onSelect(from)}>
+          From {title}
+        </button>
+      )}
+      <div className="rounded-2xl bg-raised px-4 py-2.5 text-sm">
+        <Markdown>{text}</Markdown>
       </div>
-      <Markdown>{text}</Markdown>
     </div>
   );
 }
@@ -173,19 +170,18 @@ function ToolCall({
   // Starting an agent gets its own line with a link to the new thread.
   if (call.toolName === 'start_agent') {
     const started = parse(result) as { threadId?: string; sandboxId?: string } | undefined;
-    const sandbox = args.sandbox === 'shared' ? 'shared sandbox' : args.sandbox === 'new' ? 'new sandbox' : `sandbox ${short(String(args.sandbox))}`;
+    const sandbox = args.sandbox === 'shared' ? 'the same sandbox' : args.sandbox === 'new' ? 'a new sandbox' : `sandbox ${short(String(args.sandbox))}`;
     const open = started?.threadId && threads.some(t => t.id === started.threadId);
     return (
       <button
         disabled={!open}
         onClick={() => open && onSelect(started.threadId!)}
-        className="group flex w-full items-center gap-2 rounded px-1 py-1 text-left font-mono text-xs text-faint enabled:hover:bg-muted/50"
+        className="group flex w-full items-center gap-1.5 rounded-md py-1 text-left text-sm text-faint enabled:hover:text-foreground"
       >
-        <span className="text-signal">↳</span>
-        <span>{done ? 'started' : 'starting'}</span>
-        <span className="truncate font-sans text-[13px] text-foreground">{String(args.title ?? 'an agent')}</span>
-        <span>· {sandbox}</span>
-        {open && <ArrowUpRightIcon className="ml-auto size-3.5 opacity-0 group-hover:opacity-100" />}
+        <span>{done ? 'Started' : 'Starting'}</span>
+        <span className="truncate text-muted-foreground group-enabled:group-hover:text-foreground">{String(args.title ?? 'an agent')}</span>
+        <span>in {sandbox}</span>
+        {open && <ArrowUpRightIcon className="size-3.5 opacity-0 group-hover:opacity-100" />}
       </button>
     );
   }
@@ -201,11 +197,9 @@ function ToolCall({
       <TraceCollapsible>
         <TraceCollapsibleTrigger>
           <TraceLine status={cutOff ? 'error' : !done ? 'running' : failed ? 'error' : undefined}>
-            <TraceTitle className="max-w-[64ch] truncate font-mono text-xs text-muted-foreground">
-              <span className={cn('mr-2', cutOff || failed ? 'text-destructive' : !done ? 'text-signal' : 'text-faint')}>
-                {isCommand ? '$' : '·'}
-              </span>
-              {cutOff && <span className="text-destructive">didn't finish: </span>}
+            <TraceTitle className={cn('max-w-[64ch] truncate font-mono text-xs text-faint', (cutOff || failed) && 'text-destructive')}>
+              {isCommand && '$ '}
+              {cutOff && "didn't finish: "}
               {label.split('\n')[0]}
             </TraceTitle>
           </TraceLine>
