@@ -3,7 +3,6 @@ import { rm } from 'node:fs/promises';
 import type { Mastra } from '@mastra/core/mastra';
 import { MASTRA_RESOURCE_ID_KEY } from '@mastra/core/request-context';
 import { LocalFilesystem, LocalSandbox, Workspace } from '@mastra/core/workspace';
-import type { SandboxStartHook } from '@mastra/core/workspace';
 import { ModalFilesystem, ModalSandbox } from '@mastra/modal';
 import { ModalClient } from 'modal';
 import { toolkits } from '../toolkits';
@@ -31,12 +30,28 @@ const FILES = '/mnt/work';
 
 // The machine is replaced whenever it times out, so the toolkits' CLIs are
 // installed on each new one. Only the files on the volume carry over.
-const installToolkits: SandboxStartHook = async ({ sandbox }) => {
-  for (const toolkit of toolkits) {
-    const result = await sandbox.executeCommand!(toolkit.install);
-    if (result.exitCode !== 0) throw new Error(`Installing ${toolkit.cli} failed: ${result.stderr}`);
-  }
-};
+//
+// Mastra marks a sandbox running before its onStart hook finishes, so without
+// a gate the agent's first command can run while the install is still going
+// and find no CLI. Commands therefore wait for the install in progress.
+function installToolkitsBeforeCommands(sandbox: ModalSandbox) {
+  const run = sandbox.executeCommand!.bind(sandbox);
+  let installing: Promise<void> | undefined;
+  sandbox.executeCommand = async (...args) => {
+    await installing?.catch(() => {});
+    return run(...args);
+  };
+  const install = async () => {
+    for (const toolkit of toolkits) {
+      const result = await run(toolkit.install);
+      if (result.exitCode !== 0) throw new Error(`Installing ${toolkit.cli} failed: ${result.stderr}`);
+    }
+  };
+  sandbox.setOnStart(() => async () => {
+    installing = install();
+    await installing;
+  });
+}
 
 let modal: ModalClient | undefined;
 const volumes = new Map<string, Promise<Volume>>();
@@ -90,11 +105,11 @@ async function createWorkspace(resourceId: string, sandboxId: string): Promise<W
     timeoutMs: 60 * 60_000,
     env,
     volumes: { [FILES]: volume.withMountOptions({ subPath: sandboxId }) },
-    onStart: installToolkits,
     // The file tools resolve every path inside ${FILES}, so an absolute
     // "${FILES}/notes.txt" would land in ${FILES}${FILES}/notes.txt.
     instructions: `Linux sandbox with git, Node.js, and ${clis}. Your files are in ${FILES} and are kept between conversations; the machine itself is replaced when idle, so anything outside ${FILES} (global installs, running servers) doesn't last. Run commands with cwd "${FILES}". File tools (read, write, list) take paths relative to ${FILES}: write "notes.txt", not "${FILES}/notes.txt".`,
   });
+  installToolkitsBeforeCommands(sandbox);
   return new Workspace({ ...workspace, sandbox, filesystem: new ModalFilesystem({ sandbox, basePath: FILES }) });
 }
 

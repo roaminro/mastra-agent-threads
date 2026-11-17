@@ -132,7 +132,7 @@ Every sandbox installs every toolkit when its machine starts, and every agent, c
 
 Things to know:
 
-- **Installs rerun.** Modal machines don't keep their disk, only `/mnt/work`, so the install runs on each new machine. For a slow install, build an image with the CLI already in it and set `baseImage` in `src/mastra/workspaces/sandboxes.ts`.
+- **Installs rerun.** Modal machines don't keep their disk, only `/mnt/work`, so the install runs on each new machine. Commands wait until it finishes, so the first one on a new machine takes longer. For a slow install, build an image with the CLI already in it and set `baseImage` in `src/mastra/workspaces/sandboxes.ts`.
 - **Secrets are shared.** A toolkit's `env` goes into every user's sandboxes, where any agent can read it. Use read-only or test-mode keys, or per-user credentials, before letting others in.
 - **Skills load from the server's working directory.** The `skill` path is relative to `src/mastra/public` under `pnpm mastra dev`, and `mastra build` copies that folder next to the built server. Start the built server from `.mastra/output`, or the skills are silently missing.
 - **Locally, nothing is installed.** Without a Modal token, sandboxes are folders on your machine and use the CLIs you have installed.
