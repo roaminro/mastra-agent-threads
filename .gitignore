@@ -1,6 +1,7 @@
 node_modules/
 .mastra/
 .sandboxes/
+src/mastra/public/ui/
 dist/
 
 # Secrets

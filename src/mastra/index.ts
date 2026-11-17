@@ -4,6 +4,7 @@ import { MastraPlatformExporter, Observability } from '@mastra/observability';
 import { LibSQLStore } from '@mastra/libsql';
 import { devAgent } from './agents/dev-agent';
 import { appRoutes } from './routes/app';
+import { webRoutes } from './routes/web';
 import { trackRuns } from './runs';
 
 type User = { id: string; name: string };
@@ -23,7 +24,7 @@ export const mastra = new Mastra({
     authToken: process.env.TURSO_AUTH_TOKEN,
   }),
   server: {
-    apiRoutes: appRoutes,
+    apiRoutes: [...appRoutes, ...webRoutes],
     auth: new SimpleAuth<User>({
       tokens: users,
       // The signed-in user becomes the memory resource id. The server sets it

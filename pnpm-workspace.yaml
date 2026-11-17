@@ -1,0 +1,4 @@
+# Native build scripts the Mastra build installs for the server bundle.
+allowBuilds:
+  cbor-extract: true
+  protobufjs: true

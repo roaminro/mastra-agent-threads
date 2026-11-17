@@ -38,6 +38,15 @@ You need Node.js 22+, pnpm, and an Anthropic API key. A Modal account is optiona
 
    If the server started on another port (it moves to 4112 when 4111 is taken), run `MASTRA_URL=http://localhost:4112 pnpm dev` instead.
 
+   This is the development setup, with the web app reloading as you edit it. The server can also serve the app itself, which is how it runs once deployed:
+
+   ```bash
+   pnpm build       # builds web/ into src/mastra/public/ui, then the server
+   npx mastra start # the app is at http://localhost:4111/ui, Studio is off
+   ```
+
+   `pnpm mastra dev` serves the last built copy at `/ui` too, next to Studio at `/`.
+
 ## Using the app
 
 The screen has three columns.
@@ -171,6 +180,7 @@ Agent runs live in the server's memory, so a crash or restart ends them and noth
 | `src/mastra/workspaces/sandboxes.ts` | Modal sandboxes and volumes, the local fallback, and ownership checks |
 | `src/mastra/toolkits/` | The CLIs installed in every sandbox, each paired with a skill in `src/mastra/public/skills/` |
 | `src/mastra/routes/app.ts` | The web app's routes |
+| `src/mastra/routes/web.ts` | Serves the built web app at `/ui` |
 | `src/mastra/runs.ts` | Tracks running threads so interrupted runs can be shown |
 | `web/` | The web app: Vite, React 19, Tailwind v4, shadcn/ui with AI Elements, and `@mastra/react`'s `useChat` with thread signals |
 
@@ -184,10 +194,12 @@ Not tried yet. The steps should be:
 
 ```bash
 npx mastra env db create --kind turso   # hosted database for threads
-npx mastra deploy
+pnpm run deploy                         # builds the web app, then runs mastra deploy
 ```
 
-In the Platform environment, set `ANTHROPIC_API_KEY`, `APP_USERS` (or replace `SimpleAuth` in `src/mastra/index.ts` with a real identity provider), `MODAL_TOKEN_ID`, `MODAL_TOKEN_SECRET`, and optionally `GH_TOKEN`. Build the web app with `pnpm build` and serve `web/dist` from a host that forwards `/api` and `/app` to the deployed server.
+The web app ships inside the server and is served at `/ui` by `src/mastra/routes/web.ts`, so it shares the server's address: no separate host, proxy, or CORS. The page itself is public; everything it loads needs a sign-in token.
+
+In the Platform environment, set `ANTHROPIC_API_KEY`, `APP_USERS` (or replace `SimpleAuth` in `src/mastra/index.ts` with a real identity provider), `MODAL_TOKEN_ID`, `MODAL_TOKEN_SECRET`, and optionally `GH_TOKEN`.
 
 ## Known gaps
 

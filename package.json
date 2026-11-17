@@ -4,8 +4,8 @@
   "type": "module",
   "scripts": {
     "dev": "mastra dev",
-    "build": "mastra build",
-    "deploy": "mastra deploy",
+    "build": "pnpm --dir web build && mastra build",
+    "deploy": "pnpm --dir web build && mastra deploy",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
