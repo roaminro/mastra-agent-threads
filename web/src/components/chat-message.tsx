@@ -11,7 +11,7 @@ import {
   TraceLine,
   TraceTitle,
 } from '@/components/ui/trace';
-import type { AgentThread } from '@/lib/api';
+import { type AgentThread, useAgentLabel } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
 type Part = MastraDBMessage['content']['parts'][number];
@@ -169,21 +169,7 @@ function ToolCall({
 
   // Starting an agent gets its own line with a link to the new thread.
   if (call.toolName === 'start_agent') {
-    const started = parse(result) as { threadId?: string; sandboxId?: string } | undefined;
-    const sandbox = args.sandbox === 'shared' ? 'the same sandbox' : args.sandbox === 'new' ? 'a new sandbox' : `sandbox ${short(String(args.sandbox))}`;
-    const open = started?.threadId && threads.some(t => t.id === started.threadId);
-    return (
-      <button
-        disabled={!open}
-        onClick={() => open && onSelect(started.threadId!)}
-        className="group flex w-full items-center gap-1.5 rounded-md py-1 text-left text-sm text-faint enabled:hover:text-foreground"
-      >
-        <span>{done ? 'Started' : 'Starting'}</span>
-        <span className="truncate text-muted-foreground group-enabled:group-hover:text-foreground">{String(args.title ?? 'an agent')}</span>
-        <span>in {sandbox}</span>
-        {open && <ArrowUpRightIcon className="size-3.5 opacity-0 group-hover:opacity-100" />}
-      </button>
-    );
+    return <StartedAgent args={args} result={result} done={done} threads={threads} onSelect={onSelect} />;
   }
 
   const isCommand = call.toolName.endsWith('execute_command');
@@ -218,5 +204,39 @@ function ToolCall({
         </TraceCollapsibleContent>
       </TraceCollapsible>
     </Trace>
+  );
+}
+
+/** "Started <title> (Reviewer) in a new sandbox", linking to the new thread. */
+function StartedAgent({
+  args,
+  result,
+  done,
+  threads,
+  onSelect,
+}: {
+  args: Record<string, unknown>;
+  result: unknown;
+  done: boolean;
+  threads: AgentThread[];
+  onSelect: (threadId: string) => void;
+}) {
+  const label = useAgentLabel(args.agent as string | undefined);
+  const started = parse(result) as { threadId?: string } | undefined;
+  const sandbox =
+    args.sandbox === 'shared' ? 'the same sandbox' : args.sandbox === 'new' ? 'a new sandbox' : `sandbox ${short(String(args.sandbox))}`;
+  const open = started?.threadId && threads.some(t => t.id === started.threadId);
+  return (
+    <button
+      disabled={!open}
+      onClick={() => open && onSelect(started.threadId!)}
+      className="group flex w-full items-center gap-1.5 rounded-md py-1 text-left text-sm text-faint enabled:hover:text-foreground"
+    >
+      <span>{done ? 'Started' : 'Starting'}</span>
+      <span className="truncate text-muted-foreground group-enabled:group-hover:text-foreground">{String(args.title ?? 'an agent')}</span>
+      {label && <span className="shrink-0 rounded border px-1.5 text-xs">{label}</span>}
+      <span>in {sandbox}</span>
+      {open && <ArrowUpRightIcon className="size-3.5 opacity-0 group-hover:opacity-100" />}
+    </button>
   );
 }

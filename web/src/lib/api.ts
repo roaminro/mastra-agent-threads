@@ -1,3 +1,4 @@
+import { useMastraClient } from '@mastra/react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 const TOKEN_KEY = 'agent-threads-token';
@@ -12,6 +13,8 @@ export type AgentThread = {
   createdAt: string;
   updatedAt: string;
   parentThreadId: string | null;
+  /** Which agent runs the thread: "dev" or a specialist. */
+  agentId: string;
   sandboxId: string;
   depth: number;
   closed: boolean;
@@ -51,8 +54,8 @@ export const useThreads = () =>
       api<{ threads: Omit<AgentThread, 'running'>[] }>('/app/threads').then(r =>
         r.threads.map(t => ({
           ...t,
-          // Threads started outside this app (e.g. Studio) may have no title.
-          title: t.title || 'Untitled conversation',
+          // Empty until memory generates a title from the first message (a few seconds).
+          title: t.title || 'New task',
           running: t.status === 'running',
         })),
       ),
@@ -65,7 +68,7 @@ function useInvalidatingMutation<TVars, TResult>(fn: (vars: TVars) => Promise<TR
 }
 
 export const useStartTask = () =>
-  useInvalidatingMutation((body: { title: string; task: string; sandbox: string }) =>
+  useInvalidatingMutation((body: { title?: string; task: string; sandbox: string; agent: string }) =>
     api<{ threadId: string; sandboxId: string }>('/app/tasks', { method: 'POST', body }),
   );
 
@@ -78,6 +81,26 @@ export const useDeleteThread = () =>
   useInvalidatingMutation((threadId: string) =>
     api<{ deleted: string[]; freedSandboxes: string[] }>(`/app/threads/${threadId}`, { method: 'DELETE' }),
   );
+
+/** The agents a task can go to, from Mastra's agent list. Fixed while the server runs. */
+export const useAgents = () => {
+  const client = useMastraClient();
+  return useQuery({
+    queryKey: ['agents'],
+    queryFn: () =>
+      client
+        .listAgents()
+        .then(agents => Object.values(agents).map(({ id, name, description }) => ({ id, name, description: description ?? '' }))),
+    staleTime: Infinity,
+  });
+};
+
+/** A specialist's name, or null for the default dev agent (which needs no label). */
+export function useAgentLabel(agentId: string | undefined) {
+  const agents = useAgents();
+  if (!agentId || agentId === 'dev') return null;
+  return agents.data?.find(agent => agent.id === agentId)?.name ?? agentId;
+}
 
 export const useFiles = (threadId: string, path: string) =>
   useQuery({

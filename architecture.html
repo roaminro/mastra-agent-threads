@@ -272,7 +272,11 @@
   <table>
     <tr><th>File</th><th>Role</th></tr>
     <tr><td><code>src/mastra/index.ts</code></td><td>Mastra instance: agent, LibSQL storage (Turso when configured), SimpleAuth + <code>mapUserToResourceId</code>, observability</td></tr>
-    <tr><td><code>src/mastra/agents/dev-agent.ts</code></td><td>The <code>dev</code> agent; child-aware instructions; observational memory; <code>workspace: resolveWorkspace</code></td></tr>
+    <tr><td><code>src/mastra/agents/dev-agent.ts</code></td><td>The <code>dev</code> agent: the only one that starts agents; <code>workspace: resolveWorkspace</code></td></tr>
+    <tr><td><code>src/mastra/agents/reviewer-agent.ts</code></td><td>Reviewer specialist (Opus): same sandbox through <code>resolveReadOnlyWorkspace</code>, so no write or edit tools</td></tr>
+    <tr><td><code>src/mastra/agents/researcher-agent.ts</code></td><td>Researcher specialist (Haiku): web search and fetch, in a sandbox like every agent</td></tr>
+    <tr><td><code>src/mastra/memory.ts</code></td><td>The one memory every agent shares (observational memory on Haiku), registered on the Mastra instance so it uses Mastra's storage</td></tr>
+    <tr><td><code>src/mastra/agents/shared.ts</code></td><td>The report-back instruction for agents another agent started</td></tr>
     <tr><td><code>src/mastra/tools/agent-threads.ts</code></td><td>The seven agent-thread tools and limits</td></tr>
     <tr><td><code>src/mastra/runs.ts</code></td><td>Run tracker: records each thread's run start and end, for <em>interrupted</em> and <em>to look at</em>; thread status</td></tr>
 <tr><td><code>src/mastra/routes/app.ts</code></td><td>The <code>/app/…</code> routes the web app uses</td></tr>

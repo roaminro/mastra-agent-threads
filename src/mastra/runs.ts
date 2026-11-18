@@ -1,4 +1,6 @@
 import type { Agent } from '@mastra/core/agent';
+import type { Mastra } from '@mastra/core/mastra';
+import { memory } from './memory';
 
 // Agent runs live in the server's memory, so a crash or restart ends them and
 // nothing resumes them. This records each running thread in its metadata,
@@ -12,7 +14,7 @@ import type { Agent } from '@mastra/core/agent';
 const BOOT_ID = crypto.randomUUID();
 const POLL_MS = 2_000;
 
-type Memory = NonNullable<Awaited<ReturnType<Agent['getMemory']>>>;
+type Memory = typeof memory;
 type Thread = { id: string; resourceId: string; title?: string; metadata?: Record<string, unknown> | null };
 
 export type RunMetadata = {
@@ -46,7 +48,8 @@ export async function updateMetadata(memory: Memory, threadId: string, patch: Pa
   await memory.updateThread({ id: thread.id, title: thread.title ?? '', metadata: patch });
 }
 
-export function trackRuns(agent: Agent) {
+/** Records when each thread's run starts and ends, for every agent. */
+export function trackRuns(mastra: Mastra) {
   let previous = new Map<string, string>();
   let busy = false;
 
@@ -54,9 +57,8 @@ export function trackRuns(agent: Agent) {
     if (busy) return;
     busy = true;
     try {
-      const memory = await agent.getMemory();
-      if (!memory) return;
-      const current = new Map(agent.listActiveThreadRuns().map(run => [run.threadId, run.runId]));
+      const runs = Object.values(mastra.listAgents()).flatMap(agent => (agent as Agent).listActiveThreadRuns());
+      const current = new Map(runs.map(run => [run.threadId, run.runId]));
 
       for (const [threadId, runId] of current) {
         if (previous.get(threadId) === runId) continue;

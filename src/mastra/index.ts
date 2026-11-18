@@ -2,7 +2,10 @@ import { Mastra } from '@mastra/core/mastra';
 import { SimpleAuth } from '@mastra/core/server';
 import { MastraPlatformExporter, Observability } from '@mastra/observability';
 import { LibSQLStore } from '@mastra/libsql';
+import { memory } from './memory';
 import { devAgent } from './agents/dev-agent';
+import { researcherAgent } from './agents/researcher-agent';
+import { reviewerAgent } from './agents/reviewer-agent';
 import { appRoutes } from './routes/app';
 import { webRoutes } from './routes/web';
 import { trackRuns } from './runs';
@@ -15,7 +18,8 @@ type User = { id: string; name: string };
 const users = JSON.parse(process.env.APP_USERS ?? '{}') as Record<string, User>;
 
 export const mastra = new Mastra({
-  agents: { devAgent },
+  // Every agent a thread can run. Dev's instructions and the New task picker list them from here.
+  agents: { devAgent, reviewerAgent, researcherAgent },
   // On Platform, attach a Turso database (`mastra env db create --kind turso`)
   // and its connection variables are injected. Locally this is a file.
   storage: new LibSQLStore({
@@ -23,6 +27,7 @@ export const mastra = new Mastra({
     url: process.env.TURSO_DATABASE_URL ?? 'file:./mastra.db',
     authToken: process.env.TURSO_AUTH_TOKEN,
   }),
+  memory: { threads: memory },
   server: {
     apiRoutes: [...appRoutes, ...webRoutes],
     auth: new SimpleAuth<User>({
@@ -45,4 +50,4 @@ export const mastra = new Mastra({
 
 // Records which threads are running, so after a restart the app can show the
 // ones that were cut off.
-trackRuns(mastra.getAgentById('dev'));
+trackRuns(mastra);

@@ -2,7 +2,7 @@
 
 A proof of concept for cloud coding agents in the style of [boxes.dev](https://boxes.dev). You give an agent a task in a web app. It works in a cloud sandbox, and it can split the work across other agents, each in the same sandbox or a fresh one. You can watch every agent, message one mid-task, stop it, and browse its files.
 
-It's one Mastra agent (`dev`), deployable to Mastra Platform. Sandboxes run on [Modal](https://modal.com), with each user's files on a durable Modal volume. Without a Modal token, sandboxes are folders on your machine.
+Tasks go to one of three Mastra agents: **Dev**, a general engineer that can start other agents, and two specialists it can hand work to, **Reviewer** and **Researcher**. It's deployable to Mastra Platform. Sandboxes run on [Modal](https://modal.com), with each user's files on a durable Modal volume. Without a Modal token, sandboxes are folders on your machine.
 
 ## Quick start
 
@@ -57,13 +57,23 @@ The screen has a task list on the left and the selected agent's conversation on 
 
 Actions:
 
-- **New task** (top left) starts a top-level agent. Give it a title, instructions, and a sandbox: `main` (your default sandbox and its files), a new empty sandbox, or one of your existing sandboxes.
+- **New task** (top left) starts a top-level agent. Give it instructions (the task is named from them within a few seconds), an agent (Dev unless you want a specialist), and a sandbox: `main` (your default sandbox and its files), a new empty sandbox, or one of your existing sandboxes.
 - **Stop** ends the agent's current run. It keeps its conversation and files; message it to continue.
 - **Close** stops every agent in the task and moves it to *Closed*. **Reopen** brings it back.
 - **Delete** removes the task, every agent under it, and the files of any sandbox nothing else uses. You see what will be deleted before confirming. `main` is never deleted.
 - **Resume** and **Dismiss** appear on an agent that a server restart interrupted. Resume asks it to check its files and continue; Dismiss clears the warning.
 
 You can also open any agent's thread in Studio at http://localhost:4111. Messages sent from Studio run in your `main` sandbox, though, so use the app for agents in other sandboxes.
+
+## Agents
+
+| Agent | Model | Tools | Sandbox |
+| - | - | - | - |
+| **Dev** | Claude Sonnet 5.5 | Commands, file tools, the agent-thread tools | Yes |
+| **Reviewer** | Claude Opus 5.5 | Commands and read-only file tools: it gets no write or edit tools. It can still run tests and `git diff`, and its instructions tell it not to change files through commands. | Yes, usually the shared one, to review Dev's changes |
+| **Researcher** | Claude Haiku 5.5 | Web search and web fetch, plus commands and file tools | Yes, like every agent |
+
+Only Dev starts agents (`start_agent`'s `agent` field picks which). Specialists can only report back with `report_to_parent`. In the task list and conversation, a specialist's thread is labelled with its name.
 
 ## Example tasks
 
@@ -93,9 +103,22 @@ Select the child: its files panel shows only its own sandbox, separate from the 
 
 While it runs, select it and type "Stop at 5 instead". The agent reads the message between commands and stops early. (A message can't cut into a command that's already running; use **Stop** for that.)
 
+**Handing work to specialists**
+
+> Clone sindresorhus/slugify into /mnt/work/slugify, install dependencies, and add a `maxLength` option to slugify that truncates the result at a word boundary when possible. Add a test for it and make sure the tests pass. When it is done, start a Reviewer in the shared sandbox to review your change, and a Researcher to look up how other popular slug libraries handle a maximum length. Apply anything worthwhile from the review, then reply with a short summary that includes what the researcher found.
+
+Dev starts a Reviewer in its sandbox and a Researcher in the same sandbox. The Reviewer reads the diff and runs edge cases; the Researcher searches the web. Dev applies the review and combines both reports.
+
 **A server restart**
 
 Start the counting task, then stop `pnpm mastra dev` with Ctrl+C and start it again. The agent turns amber and shows an *interrupted* banner. Click **Resume**, and it checks `count.txt` and carries on.
+
+## Add your own agent
+
+1. Write it next to `dev-agent.ts`, with an `id`, a `name` and a `description` (Dev reads it to decide when to use the agent). Use the shared `memory` from `src/mastra/memory.ts`, and `withParent()` around its instructions so it knows to call `report_to_parent`. Give it `report_to_parent` as a tool, and a workspace: `resolveWorkspace`, or `resolveReadOnlyWorkspace` for read-only file tools.
+2. Register it in `agents` in `src/mastra/index.ts`.
+
+Dev's instructions list the registered agents and the New task picker reads Mastra's agent list (`GET /api/agents`), so nothing else changes. `reviewer-agent.ts` and `researcher-agent.ts` are the examples.
 
 ## Add your own CLI and skill
 
@@ -139,11 +162,11 @@ Things to know:
 
 ## How it works
 
-It doesn't use Mastra's built-in subagents. Every agent is a normal thread of the one `dev` agent, so they run independently and each can be opened on its own. Seven tools in `src/mastra/tools/agent-threads.ts` do the work:
+It doesn't use Mastra's built-in subagents. Every agent is a normal thread of one of the registered agents (its id is in the thread's metadata), so they run independently and each can be opened on its own. Seven tools in `src/mastra/tools/agent-threads.ts` do the work:
 
 | Tool | What it does |
 | - | - |
-| `start_agent` | Creates a thread for the task and starts it with `agent.sendMessage()`. Returns the thread ID without waiting. `sandbox` is `shared` (the caller's sandbox and its uncommitted files), `new` (a fresh sandbox from the template), or an existing sandbox ID. With an `idempotencyKey`, calling it again returns the agent it already started instead of starting a second one. |
+| `start_agent` | Creates a thread for the task and starts it with `agent.sendMessage()`. Returns the thread ID without waiting. `sandbox` is `shared` (the caller's sandbox and its uncommitted files), `new` (a fresh sandbox from the template), or an existing sandbox ID. With an `idempotencyKey`, calling it again returns the agent it already started instead of starting a second one. `agent` picks who does it: `dev` (default), `reviewer` or `researcher`. |
 | `message_agent` | Sends a signal to another thread of the same user. It reaches the agent mid-task, or wakes it if idle. |
 | `interrupt_agent` | Stops a child's run mid-task and drops messages it hasn't read. The thread and sandbox stay, so `message_agent` can give it new instructions. Only works on the caller's own children. |
 | `report_to_parent` | The child's result. It's saved on the child's thread first, then sent as a notification signal that wakes the parent. |
@@ -176,6 +199,9 @@ Agent runs live in the server's memory, so a crash or restart ends them and noth
 | - | - |
 | `src/mastra/index.ts` | The Mastra instance: storage, sign-in, app routes, run tracker |
 | `src/mastra/agents/dev-agent.ts` | The `dev` agent and its instructions |
+| `src/mastra/agents/reviewer-agent.ts`, `researcher-agent.ts` | The specialists |
+| `src/mastra/memory.ts` | The one memory all agents share, registered on the Mastra instance |
+| `src/mastra/agents/shared.ts` | The report-back instruction for agents another agent started |
 | `src/mastra/tools/agent-threads.ts` | The seven agent-thread tools and the limits |
 | `src/mastra/workspaces/sandboxes.ts` | Modal sandboxes and volumes, the local fallback, and ownership checks |
 | `src/mastra/toolkits/` | The CLIs installed in every sandbox, each paired with a skill in `src/mastra/public/skills/` |

@@ -10,10 +10,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { type AgentThread, useStartTask } from '@/lib/api';
+import { type AgentThread, useAgents, useStartTask } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
 export function NewTaskDialog({
@@ -27,10 +26,11 @@ export function NewTaskDialog({
   onOpenChange: (open: boolean) => void;
   onStarted: (threadId: string) => void;
 }) {
-  const [title, setTitle] = useState('');
   const [task, setTask] = useState('');
   const [sandbox, setSandbox] = useState('main');
+  const [agent, setAgent] = useState('dev');
   const startTask = useStartTask();
+  const agents = useAgents();
   const existing = [...new Set(threads.map(t => t.sandboxId))].filter(s => s !== 'main');
 
   const options = [
@@ -47,13 +47,13 @@ export function NewTaskDialog({
           onSubmit={event => {
             event.preventDefault();
             startTask.mutate(
-              { title, task, sandbox },
+              { task, sandbox, agent },
               {
                 onSuccess: ({ threadId }) => {
                   onOpenChange(false);
-                  setTitle('');
                   setTask('');
                   setSandbox('main');
+                  setAgent('dev');
                   onStarted(threadId);
                 },
                 onError: error => toast.error(error.message),
@@ -65,17 +65,33 @@ export function NewTaskDialog({
             <DialogTitle>New task</DialogTitle>
             <DialogDescription>An agent starts on it right away. It can split the work across other agents.</DialogDescription>
           </DialogHeader>
-          <Label htmlFor="title" className="mt-1 text-xs font-normal text-muted-foreground">Title</Label>
-          <Input id="title" value={title} onChange={e => setTitle(e.target.value)} maxLength={80} required />
           <Label htmlFor="task" className="mt-1 text-xs font-normal text-muted-foreground">Instructions</Label>
           <Textarea
             id="task"
+            autoFocus
             value={task}
             onChange={e => setTask(e.target.value)}
             rows={6}
             required
             placeholder="Clone sindresorhus/slugify into /mnt/work/slugify and run its tests."
           />
+          <Label className="mt-1 text-xs font-normal text-muted-foreground">Agent</Label>
+          <div className="flex flex-wrap gap-1.5">
+            {(agents.data ?? []).map(option => (
+              <Button
+                key={option.id}
+                type="button"
+                size="sm"
+                variant={agent === option.id ? 'secondary' : 'outline'}
+                className={cn(agent !== option.id && 'text-muted-foreground')}
+                title={option.description}
+                onClick={() => setAgent(option.id)}
+              >
+                {option.name}
+              </Button>
+            ))}
+          </div>
+          <p className="text-xs text-faint">{agents.data?.find(a => a.id === agent)?.description}</p>
           <Label className="mt-1 text-xs font-normal text-muted-foreground">Sandbox</Label>
           <div className="grid grid-cols-2 gap-2">
             {options.map(option => (
@@ -105,7 +121,7 @@ export function NewTaskDialog({
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="submit" disabled={startTask.isPending || !title || !task}>
+            <Button type="submit" disabled={startTask.isPending || !task}>
               Start agent
             </Button>
           </DialogFooter>

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { XIcon } from 'lucide-react';
 import { DeleteThreadDialog } from '@/components/delete-thread-dialog';
-import { type AgentThread, childrenOf, needsAttention } from '@/lib/api';
+import { type AgentThread, childrenOf, needsAttention, useAgentLabel } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
 export function StatusDot({ thread, attention }: { thread: AgentThread; attention?: boolean }) {
@@ -60,6 +60,7 @@ export function AgentTree({
         >
           <StatusDot thread={thread} attention={attention} />
           <span className="min-w-0 flex-1 truncate">{thread.title}</span>
+          <AgentLabel agentId={thread.agentId} />
           <button
             title="Delete"
             onClick={event => {
@@ -97,4 +98,10 @@ export function AgentTree({
       />
     </div>
   );
+}
+
+/** A specialist's name next to its thread; nothing for the default dev agent. */
+function AgentLabel({ agentId }: { agentId: string }) {
+  const label = useAgentLabel(agentId);
+  return label ? <span className="shrink-0 text-xs text-faint group-hover:hidden">{label}</span> : null;
 }

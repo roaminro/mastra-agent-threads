@@ -3,10 +3,12 @@ import type { Agent, MastraDBMessage } from '@mastra/core/agent';
 import { MASTRA_RESOURCE_ID_KEY, RequestContext } from '@mastra/core/request-context';
 import { createTool } from '@mastra/core/tools';
 import type { ToolExecutionContext } from '@mastra/core/tools';
+import type { Mastra } from '@mastra/core/mastra';
 import { z } from 'zod';
 import { agentStatus, updateMetadata } from '../runs';
 import type { RunMetadata } from '../runs';
 import { DEFAULT_SANDBOX_ID, SANDBOX_ID_KEY } from '../workspaces/sandboxes';
+import { memory } from '../memory';
 
 /** Request context key that tells a child thread which thread started it. */
 export const PARENT_THREAD_ID_KEY = 'parentThreadId';
@@ -17,6 +19,8 @@ const MAX_SANDBOXES_PER_USER = 5;
 const MAX_RUNNING_PER_USER = 10;
 
 export type ThreadMetadata = RunMetadata & {
+  /** Which agent runs the thread. Missing means the dev agent. */
+  agentId?: string;
   sandboxId?: string;
   parentThreadId?: string;
   depth?: number;
@@ -44,22 +48,41 @@ function runOptionsFor(thread: { resourceId: string; metadata?: Record<string, u
   return { streamOptions: { requestContext } };
 }
 
-/** The calling thread, plus the agent and memory every tool below works through. */
+type Thread = { id: string; resourceId: string; metadata?: Record<string, unknown> | null };
+
+/** The agent that runs a thread. Signals and stops must go through it. */
+export function agentOf(mastra: Mastra, thread: Thread) {
+  const agentId = (thread.metadata as ThreadMetadata | null | undefined)?.agentId ?? DEFAULT_AGENT_ID;
+  // Falls back to dev for older threads and for agents since removed.
+  return findAgent(mastra, agentId) ?? (mastra.getAgentById(DEFAULT_AGENT_ID) as Agent);
+}
+
+export const DEFAULT_AGENT_ID = 'dev';
+
+function findAgent(mastra: Mastra, agentId: string) {
+  return Object.values(mastra.listAgents()).find(agent => agent.id === agentId) as Agent | undefined;
+}
+
+/** Running threads of one user, across all agents. Counts this server process only. */
+export function runningCount(mastra: Mastra, resourceId: string) {
+  return Object.values(mastra.listAgents())
+    .flatMap(agent => (agent as Agent).listActiveThreadRuns())
+    .filter(run => run.resourceId === resourceId).length;
+}
+
+/** The calling thread, plus what every tool below works through. */
 async function caller(context: ToolExecutionContext) {
   const { mastra, agent: run } = context;
   if (!mastra || !run?.threadId || !run.resourceId) {
     throw new Error('Agent thread tools must run inside an agent call with memory (threadId and resourceId).');
   }
-  const agent = mastra.getAgentById(run.agentId) as Agent;
-  const memory = await agent.getMemory();
-  if (!memory) throw new Error(`Agent ${run.agentId} has no memory, so it can't track threads.`);
 
   const thread = await memory.getThreadById({ threadId: run.threadId });
   const metadata = (thread?.metadata ?? {}) as ThreadMetadata;
   const sandboxId =
     (context.requestContext?.get(SANDBOX_ID_KEY) as string | undefined) ?? metadata.sandboxId ?? DEFAULT_SANDBOX_ID;
 
-  return { agent, memory, threadId: run.threadId, resourceId: run.resourceId, metadata, sandboxId };
+  return { mastra: mastra as Mastra, memory, threadId: run.threadId, resourceId: run.resourceId, metadata, sandboxId };
 }
 
 /** A thread the caller started. */
@@ -96,15 +119,19 @@ export const startAgent = createTool({
       .max(100)
       .optional()
       .describe('A name for this task that stays the same if you retry, e.g. "fix-login-tests"'),
+    agent: z
+      .string()
+      .default(DEFAULT_AGENT_ID)
+      .describe('Which agent does the task: "dev" (another agent like you) or one of the specialists in your instructions.'),
   }),
   outputSchema: z.object({ threadId: z.string(), sandboxId: z.string(), alreadyStarted: z.boolean() }),
-  execute: async ({ title, task, sandbox, idempotencyKey }, context) => {
+  execute: async ({ title, task, sandbox, idempotencyKey, agent }, context) => {
     const self = await caller(context);
-    return startThread(self, { parent: self, title, task, sandbox, idempotencyKey });
+    return startThread(self, { parent: self, title, task, sandbox, idempotencyKey, agent });
   },
 });
 
-type ThreadOwner = { agent: Agent; memory: NonNullable<Awaited<ReturnType<Agent['getMemory']>>>; resourceId: string };
+type ThreadOwner = { mastra: Mastra; memory: typeof memory; resourceId: string };
 
 /**
  * Creates a thread for a task and starts it. Used by `start_agent` (with the
@@ -114,15 +141,19 @@ export async function startThread(
   owner: ThreadOwner,
   options: {
     parent?: { threadId: string; metadata: ThreadMetadata; sandboxId: string };
-    title: string;
+    /** Without one, memory generates a title from the task. */
+    title?: string;
     task: string;
     /** "shared" means the parent's sandbox, or `main` for a top-level task. */
     sandbox: string;
     idempotencyKey?: string;
+    agent?: string;
   },
 ) {
-  const { parent, title, task, sandbox, idempotencyKey } = options;
-  const { agent, memory, resourceId } = owner;
+  const { parent, title, task, sandbox, idempotencyKey, agent: agentId = DEFAULT_AGENT_ID } = options;
+  const { mastra, memory, resourceId } = owner;
+  const agent = findAgent(mastra, agentId);
+  if (!agent) throw new Error(`No agent "${agentId}".`);
   const id = idempotencyKey ? idempotentId(resourceId, parent?.threadId ?? '', idempotencyKey) : crypto.randomUUID();
   const threadId = `agent-${id}`;
   const existing = await memory.getThreadById({ threadId });
@@ -144,7 +175,7 @@ export async function startThread(
   }
 
   // Counts runs on this server process only; see the README for several instances.
-  const running = agent.listActiveThreadRuns().filter(run => run.resourceId === resourceId).length;
+  const running = runningCount(mastra, resourceId);
   if (running >= MAX_RUNNING_PER_USER) {
     throw new Error(`${running} agents are already running for this user. Wait for some to finish.`);
   }
@@ -165,7 +196,12 @@ export async function startThread(
     sandboxId = sandbox;
   }
 
-  const metadata: ThreadMetadata = { sandboxId, depth, ...(parent && { parentThreadId: parent.threadId }) };
+  const metadata: ThreadMetadata = {
+    agentId,
+    depth,
+    sandboxId,
+    ...(parent && { parentThreadId: parent.threadId }),
+  };
   await memory.createThread({ threadId, resourceId, title, metadata });
 
   const result = agent.sendMessage(task, {
@@ -174,7 +210,29 @@ export async function startThread(
     ifIdle: runOptionsFor({ resourceId, metadata }),
   });
   await result.accepted;
+  if (!title) void nameThread(agent, memory, threadId, task);
   return { threadId, sandboxId, alreadyStarted: false };
+}
+
+/**
+ * Names an untitled thread from its task while the agent works. Memory's own
+ * generateTitle only runs once the first turn ends, which for a coding task can
+ * be minutes.
+ */
+async function nameThread(agent: Agent, memory: ThreadOwner['memory'], threadId: string, task: string) {
+  try {
+    const generated = await agent.generateTitleFromUserMessage({
+      message: task,
+      model: 'anthropic/claude-haiku-5-5',
+      instructions:
+        'Write a title of at most 6 words for this task, in sentence case, with no quotes or final period. Reply with the title only.',
+    });
+    const title = generated?.replace(/^title:\s*/i, '').trim();
+    // The thread may have been deleted meanwhile; updating it would bring it back.
+    if (title && (await memory.getThreadById({ threadId }))) await memory.updateThread({ id: threadId, title, metadata: {} });
+  } catch (error) {
+    console.warn(`Couldn't name thread ${threadId}:`, error);
+  }
 }
 
 export const messageAgent = createTool({
@@ -196,7 +254,7 @@ export const messageAgent = createTool({
       await updateMetadata(self.memory, threadId, { report: null });
     }
 
-    const result = self.agent.sendSignal(
+    const result = agentOf(self.mastra, target).sendSignal(
       { type: 'reactive', tagName: 'agent-message', contents: message, attributes: { from: self.threadId } },
       { resourceId: self.resourceId, threadId, ifIdle: runOptionsFor(target) },
     );
@@ -213,9 +271,9 @@ export const interruptAgent = createTool({
   outputSchema: z.object({ stopped: z.boolean() }),
   execute: async ({ threadId }, context) => {
     const self = await caller(context);
-    await child(self, threadId);
+    const thread = await child(self, threadId);
     // Also asks another server instance to stop the run if that instance owns it.
-    const stopped = self.agent.abortThreadStream({ resourceId: self.resourceId, threadId, clearPendingSignals: true });
+    const stopped = agentOf(self.mastra, thread).abortThreadStream({ resourceId: self.resourceId, threadId, clearPendingSignals: true });
     return { stopped };
   },
 });
@@ -237,7 +295,7 @@ export const reportToParent = createTool({
     // wait_agent if the signal is lost (for example, the server restarts).
     await updateMetadata(self.memory, self.threadId, { report: { status, summary, at: new Date().toISOString() } });
 
-    const result = self.agent.sendSignal(
+    const result = agentOf(self.mastra, parent).sendSignal(
       { type: 'notification', tagName: 'agent-report', contents: summary, attributes: { from: self.threadId, status } },
       { resourceId: self.resourceId, threadId: parent.id, ifIdle: runOptionsFor(parent) },
     );
@@ -264,12 +322,12 @@ export const waitAgent = createTool({
     const self = await caller(context);
     const deadline = Date.now() + timeoutSeconds * 1_000;
     let thread = await child(self, threadId);
-    while (agentStatus(self.agent, thread) === 'running' && Date.now() < deadline) {
+    while (agentStatus(agentOf(self.mastra, thread), thread) === 'running' && Date.now() < deadline) {
       await new Promise(resolve => setTimeout(resolve, WAIT_POLL_MS));
       thread = await child(self, threadId);
     }
     return {
-      status: agentStatus(self.agent, thread),
+      status: agentStatus(agentOf(self.mastra, thread), thread),
       report: (thread.metadata as ThreadMetadata | undefined)?.report ?? null,
     };
   },
@@ -284,6 +342,7 @@ export const listAgents = createTool({
       z.object({
         threadId: z.string(),
         title: z.string(),
+        agent: z.string(),
         sandboxId: z.string(),
         status: z.enum(['running', 'interrupted', 'idle']),
         reported: z.enum(['done', 'blocked']).nullable(),
@@ -300,8 +359,9 @@ export const listAgents = createTool({
       agents: threads.map(thread => ({
         threadId: thread.id,
         title: thread.title ?? '',
+        agent: agentOf(self.mastra, thread).id,
         sandboxId: (thread.metadata as ThreadMetadata | undefined)?.sandboxId ?? DEFAULT_SANDBOX_ID,
-        status: agentStatus(self.agent, thread),
+        status: agentStatus(agentOf(self.mastra, thread), thread),
         reported: (thread.metadata as ThreadMetadata | undefined)?.report?.status ?? null,
       })),
     };

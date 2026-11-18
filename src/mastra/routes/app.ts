@@ -1,11 +1,11 @@
-import type { Agent } from '@mastra/core/agent';
 import type { Mastra } from '@mastra/core/mastra';
 import { MASTRA_RESOURCE_ID_KEY } from '@mastra/core/request-context';
 import { registerApiRoute } from '@mastra/core/server';
 type Context = Parameters<NonNullable<Parameters<typeof registerApiRoute>[1]['handler']>>[0];
 import { z } from 'zod';
 import { agentStatus, updateMetadata } from '../runs';
-import { startThread } from '../tools/agent-threads';
+import { DEFAULT_AGENT_ID, agentOf, startThread } from '../tools/agent-threads';
+import { memory } from '../memory';
 import type { ThreadMetadata } from '../tools/agent-threads';
 import { DEFAULT_SANDBOX_ID, deleteSandbox, listSandboxFiles, sandboxWorkspace } from '../workspaces/sandboxes';
 
@@ -19,10 +19,9 @@ const MAX_FILE_BYTES = 200_000;
 async function context(c: Context) {
   const resourceId = c.get('requestContext').get(MASTRA_RESOURCE_ID_KEY) as string | undefined;
   if (!resourceId) throw new HttpError(401, 'Sign in first.');
-  const agent = (c.get('mastra') as Mastra).getAgentById('dev') as Agent;
-  const memory = (await agent.getMemory())!;
+  const mastra = c.get('mastra') as Mastra;
   const { threads } = await memory.listThreads({ filter: { resourceId }, perPage: false });
-  return { agent, memory, resourceId, threads };
+  return { mastra, memory, resourceId, threads };
 }
 
 type AppContext = Awaited<ReturnType<typeof context>>;
@@ -66,7 +65,7 @@ function subtree(app: AppContext, threadId: string): string[] {
 
 function stopAll(app: AppContext, threadIds: string[]) {
   for (const threadId of threadIds) {
-    app.agent.abortThreadStream({ resourceId: app.resourceId, threadId, clearPendingSignals: true });
+    agentOf(app.mastra, ownThread(app, threadId)).abortThreadStream({ resourceId: app.resourceId, threadId, clearPendingSignals: true });
   }
 }
 
@@ -78,9 +77,10 @@ function safePath(path: string | undefined) {
 }
 
 const newTask = z.object({
-  title: z.string().min(1).max(80),
+  title: z.string().max(80).optional(),
   task: z.string().min(1),
   sandbox: z.union([z.enum(['main', 'new']), z.string().regex(/^sb-[\w-]+$/)]),
+  agent: z.string().default(DEFAULT_AGENT_ID),
 });
 
 export const appRoutes = [
@@ -96,11 +96,12 @@ export const appRoutes = [
       createdAt: thread.createdAt,
       updatedAt: thread.updatedAt,
       parentThreadId: meta(thread).parentThreadId ?? null,
+      agentId: agentOf(app.mastra, thread).id,
       sandboxId: meta(thread).sandboxId ?? DEFAULT_SANDBOX_ID,
       depth: meta(thread).depth ?? 0,
       closed: Boolean(meta(thread).closed),
       // "interrupted": a server restart cut its last run off.
-      status: agentStatus(app.agent, thread),
+      status: agentStatus(agentOf(app.mastra, thread), thread),
       runStartedAt: meta(thread).run?.startedAt ?? null,
       report: meta(thread).report ?? null,
       finishedAt: meta(thread).finishedAt ?? null,
@@ -131,7 +132,7 @@ export const appRoutes = [
   // Clears the "interrupted" state without resuming the agent.
   route('/app/threads/:threadId/dismiss', 'POST', async (c, app) => {
     const thread = ownThread(app, c.req.param('threadId')!);
-    if (agentStatus(app.agent, thread) !== 'interrupted') return;
+    if (agentStatus(agentOf(app.mastra, thread), thread) !== 'interrupted') return;
     await updateMetadata(app.memory, thread.id, { run: null });
   }),
 

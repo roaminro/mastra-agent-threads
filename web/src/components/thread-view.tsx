@@ -19,7 +19,7 @@ import {
 import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
-import { type AgentThread, rootOf, useCloseTask, useDismissInterrupted } from '@/lib/api';
+import { type AgentThread, rootOf, useAgentLabel, useCloseTask, useDismissInterrupted } from '@/lib/api';
 
 type ThreadViewProps = {
   thread: AgentThread;
@@ -36,7 +36,7 @@ export function ThreadView(props: ThreadViewProps) {
     queryKey: ['history', props.thread.id],
     queryFn: () =>
       client
-        .getMemoryThread({ threadId: props.thread.id, agentId: 'dev' })
+        .getMemoryThread({ threadId: props.thread.id, agentId: props.thread.agentId })
         .listMessages({ resourceId: props.resourceId, perPage: 200 })
         .then(r => r.messages)
         // A task opened right after it starts may not be saved yet.
@@ -76,6 +76,7 @@ function ThreadChat({
   const dismiss = useDismissInterrupted();
   const root = rootOf(threads, thread.id) ?? thread;
   const parent = threads.find(t => t.id === thread.parentThreadId);
+  const agentLabel = useAgentLabel(thread.agentId);
 
   // Runs started from here must run in the thread's own sandbox, as the tools
   // do when they wake a thread. The server only accepts a sandbox id that one
@@ -91,7 +92,7 @@ function ThreadChat({
   // and the subscription streams runs this page didn't start (reports from
   // children waking the parent, or a parent messaging this agent).
   const chat = useChat({
-    agentId: 'dev',
+    agentId: thread.agentId,
     resourceId,
     threadId: thread.id,
     requestContext,
@@ -138,7 +139,7 @@ function ThreadChat({
     });
 
   const stop = async () => {
-    await client.getAgent('dev').abortThread({ resourceId, threadId: thread.id });
+    await client.getAgent(thread.agentId).abortThread({ resourceId, threadId: thread.id });
   };
 
   return (
@@ -150,6 +151,7 @@ function ThreadChat({
           </Button>
         )}
         <h2 className="min-w-0 truncate text-sm font-medium">{thread.title}</h2>
+        {agentLabel && <span className="shrink-0 rounded border px-1.5 text-xs text-muted-foreground">{agentLabel}</span>}
         <span className={cn('shrink-0 text-xs text-faint', running && 'text-signal', interrupted && 'text-amber-400')}>
           {running ? 'Working' : interrupted ? 'Interrupted' : root.closed ? 'Closed' : ''}
         </span>

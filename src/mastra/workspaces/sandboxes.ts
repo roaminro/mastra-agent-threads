@@ -6,6 +6,7 @@ import { LocalFilesystem, LocalSandbox, Workspace } from '@mastra/core/workspace
 import { ModalFilesystem, ModalSandbox } from '@mastra/modal';
 import { ModalClient } from 'modal';
 import { toolkits } from '../toolkits';
+import { memory } from '../memory';
 import type { Volume } from 'modal';
 
 /** Request context key that names the sandbox a thread runs in. */
@@ -142,15 +143,11 @@ function workspaceFor(resourceId: string, sandboxId: string): Promise<Workspace>
  * partly from the client, so a sandbox id there is only trusted once a thread
  * of the same user is recorded as using it.
  */
-async function ownsSandbox(mastra: Mastra, resourceId: string, sandboxId: string) {
+async function ownsSandbox(resourceId: string, sandboxId: string) {
   if (sandboxId === DEFAULT_SANDBOX_ID) return true;
   if (!NEW_SANDBOX_ID.test(sandboxId)) return false;
   if (workspaces.has(cacheKey(resourceId, sandboxId))) return true;
-  const memory = await mastra.getAgentById('dev').getMemory();
-  const { total } = (await memory?.listThreads({
-    filter: { resourceId, metadata: { sandboxId } },
-    perPage: 1,
-  })) ?? { total: 0 };
+  const { total } = await memory.listThreads({ filter: { resourceId, metadata: { sandboxId } }, perPage: 1 });
   return total > 0;
 }
 
@@ -170,10 +167,42 @@ export async function resolveWorkspace({
   const resourceId = requestContext.get(MASTRA_RESOURCE_ID_KEY) as string | undefined;
   if (!resourceId || !mastra) return undefined;
   const sandboxId = (requestContext.get(SANDBOX_ID_KEY) as string | undefined) ?? DEFAULT_SANDBOX_ID;
-  if (!(await ownsSandbox(mastra, resourceId, sandboxId))) {
+  if (!(await ownsSandbox(resourceId, sandboxId))) {
     throw new Error(`Sandbox ${sandboxId} doesn't exist or belongs to another user.`);
   }
   return workspaceFor(resourceId, sandboxId);
+}
+
+const readOnlyWorkspaces = new Map<string, Promise<Workspace>>();
+
+/**
+ * A read-only view of the same sandbox: same machine and files, but the file
+ * tools can't write, so the agent gets no write or edit tools. Commands still
+ * run, so it can run tests; a command can still change files.
+ */
+async function readOnlyWorkspaceFor(resourceId: string, sandboxId: string): Promise<Workspace> {
+  const base = await workspaceFor(resourceId, sandboxId);
+  const key = cacheKey(resourceId, sandboxId);
+  const cached = readOnlyWorkspaces.get(key);
+  if (cached && (await cached).sandbox === base.sandbox) return cached;
+  const filesystem = onModal
+    ? new ModalFilesystem({ sandbox: base.sandbox as ModalSandbox, basePath: FILES, readOnly: true })
+    : new LocalFilesystem({ basePath: `.sandboxes/${userKey(resourceId)}/${sandboxId}`, readOnly: true });
+  const workspace = Promise.resolve(
+    new Workspace({ id: `${base.id}-read-only`, name: `${base.name} (read-only)`, sandbox: base.sandbox, filesystem }),
+  );
+  if (readOnlyWorkspaces.size >= MAX_CACHED_WORKSPACES) readOnlyWorkspaces.delete(readOnlyWorkspaces.keys().next().value!);
+  readOnlyWorkspaces.set(key, workspace);
+  return workspace;
+}
+
+/** Like `resolveWorkspace`, but the file tools can't write. */
+export async function resolveReadOnlyWorkspace(options: Parameters<typeof resolveWorkspace>[0]) {
+  const workspace = await resolveWorkspace(options);
+  if (!workspace) return undefined;
+  const resourceId = options.requestContext.get(MASTRA_RESOURCE_ID_KEY) as string;
+  const sandboxId = (options.requestContext.get(SANDBOX_ID_KEY) as string | undefined) ?? DEFAULT_SANDBOX_ID;
+  return readOnlyWorkspaceFor(resourceId, sandboxId);
 }
 
 /** The workspace for one of the user's sandboxes, for the app's file routes. Ownership must be checked first. */
@@ -213,6 +242,7 @@ export async function listSandboxFiles(resourceId: string, sandboxId: string, pa
 export async function deleteSandbox(resourceId: string, sandboxId: string) {
   if (sandboxId === DEFAULT_SANDBOX_ID || !NEW_SANDBOX_ID.test(sandboxId)) return;
   const key = cacheKey(resourceId, sandboxId);
+  readOnlyWorkspaces.delete(key);
   if (!onModal) {
     workspaces.delete(key);
     await rm(`.sandboxes/${userKey(resourceId)}/${sandboxId}`, { recursive: true, force: true });
